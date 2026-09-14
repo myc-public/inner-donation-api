@@ -1,0 +1,4 @@
+spring:
+  application:
+    name: inner-donation-api #  nom d'exécution runtime. Utilisé par Spring Boot (ApplicationContext, Actuator, logs), Micrometer/metrics, discovery (Eureka), et Spring Cloud Config (cherche config/{application}/{profile})
+

@@ -1,0 +1,168 @@
+server:
+  port: ${DONATION_PORT:8080}
+
+### CUSTOM prop ###
+myc:
+  context: "/" # nginx location prefix (empty on local)
+  response:
+    decompression:
+      enabled: false
+  request:
+    compression:
+      enabled: false
+  security:
+    enabled: false
+    allowed-origin-pattern: "*"
+    csp:
+      enabled: false
+      directives: default-src 'none'
+    whitelist-path:
+      - /docs/**
+      - /webjars/**
+  docs:
+    version: "1.0.0"
+    security:
+      schema: ADFS
+      auth-uri: ${AUTH_ADFS_URL_AUTHORIZE:https://srv-dcdev.myc-dev.local/adfs/oauth2/authorize}
+      token-uri: ${AUTH_ADFS_URL_TOKEN:https://srv-dcdev.myc-dev.local/adfs/oauth2/token}
+
+### DOC prop ###
+springdoc:
+  paths-to-match: /**
+  api-docs:
+    path: "docs/api-docs"
+    enabled: true
+  swagger-ui:
+    path: "/docs/swagger-ui.html"
+    url: "${myc.context}${springdoc.api-docs.path}"
+    configUrl: "${myc.context}${springdoc.api-docs.path}/swagger-config"
+    disable-swagger-default-url: true
+    operationsSorter: alpha
+    tagsSorter: alpha
+    
+### SPRING ###
+spring:
+  application:
+    name: "@project.name@"
+  profiles:
+    default: local
+    group:
+      local: local,api-docs
+      dev: dev,api-docs
+      uat: uat,api-docs
+      preprod: preprod
+      prod: prod
+  config:
+    import: optional:file:../.env[.properties]
+   ## BDD ##
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:donation_api}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USER:donation_user}
+    password: ${DB_PASSWORD:donation_pass}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: mycDonationHikari
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+
+  #CHANGE_IT security conf
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_ADFS_URL_KEYS:https://srv-dcdev.myc-dev.local/adfs/discovery/keys}
+
+
+app:
+  outbox:
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL:2000}
+    batch-size: ${OUTBOX_BATCH_SIZE:50}
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:10}
+    lock-ttl: ${OUTBOX_LOCK_TTL:PT30S}
+    initial-backoff: ${OUTBOX_INITIAL_BACKOFF:PT1S}
+    max-backoff: ${OUTBOX_MAX_BACKOFF:PT30S}
+
+### LOG LEVEL ###
+logging:
+  level:
+    root: INFO
+    ma.myc.*: INFO
+    org.springframework.*: INFO
+    org.springframework.security: INFO
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+    
+
+### INFO ENV ###
+info:
+  application:
+    name: ${spring.application.name}
+    version: "@project.version@"
+    description: "@project.description@"
+    
+### API MANAGEMENT ###
+management:
+  security:
+    users:
+      - username: ${MANAGEMENT_ADMIN_USER:admin}
+        password: ${MANAGEMENT_ADMIN_PWD:admin}
+        role: ADMIN
+      - username: ${MANAGEMENT_VIEWER_USER:viewer}
+        password: ${MANAGEMENT_VIEWER_PWD:viewer}
+        role: VIEWER
+  endpoint:
+    prometheus:
+      enabled: true
+    loggers:
+      enabled: true
+    health:
+      enabled: true
+      show-details: always
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,loggers
+      base-path: /management
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+
+---
+spring:
+  config:
+    activate:
+      on-profile: '!api-docs'
+springdoc:
+  api-docs:
+    enabled: false
+  
+---
+spring:
+  config:
+    activate:
+      on-profile: '!local'
+  devtools:
+    add-properties : false
+    livereload.enabled: false
+    restart.enabled: false
+    
+myc:
+  context: "/api/donation/"
+   

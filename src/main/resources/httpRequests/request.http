@@ -1,0 +1,161 @@
+### =========================================
+### Base variables
+### =========================================
+@baseUrl = http://localhost:8080
+@donorsPath = /api/v1/donors
+@donationsPath = /api/v1/donations
+
+### =========================================
+### Donors - Create
+### =========================================
+# @name createDonor
+POST {{baseUrl}}{{donorsPath}}
+Content-Type: application/json
+
+{
+  "lastName": "Jean",
+  "firstName": "Molin",
+  "email": "jean.molin@gmail.com",
+  "dateOfBirth": "1999-09-19",
+  "country": "MA"
+}
+
+
+### Capture donorId from response
+@donorId = {{createDonor.response.body.donorId}}
+
+### =========================================
+### Donors - Get by id
+### =========================================
+GET {{baseUrl}}{{donorsPath}}/{{donorId}}
+
+### =========================================
+### Donors - List
+### =========================================
+GET {{baseUrl}}{{donorsPath}}
+
+### =========================================
+### Donors - Update (PATCH)
+### =========================================
+PATCH {{baseUrl}}{{donorsPath}}/{{donorId}}
+Content-Type: application/json
+
+{
+  "country": "Morocco",
+  "lastName": "Doe-Updated"
+}
+
+### =========================================
+### Donors - Get again (verify update)
+### =========================================
+GET {{baseUrl}}{{donorsPath}}/{{donorId}}
+
+### =========================================
+### Donations - Create
+### =========================================
+# @name createDonation
+POST {{baseUrl}}{{donationsPath}}
+Content-Type: application/json
+
+{
+  "category": "FOOD",
+  "type": true,
+  "amount": 116,
+  "donor": {
+    "donorId": "1b2844d5-478f-4a8f-bdb5-06a267564a95",
+    "dateOfBirth": "2000-12-19",
+    "country": "MA"
+  }
+}
+
+### Capture donationId from response
+@donationId = {{createDonation.response.body.donationId}}
+
+### =========================================
+### Donations - Get by id
+### =========================================
+GET {{baseUrl}}{{donationsPath}}/{{donationId}}
+
+### =========================================
+### Donations - List
+### =========================================
+GET {{baseUrl}}{{donationsPath}}
+
+### =========================================
+### Donations - List by donor
+### =========================================
+GET {{baseUrl}}{{donationsPath}}/by-donor/{{donorId}}
+
+### =========================================
+### Donations - Update (PATCH)
+### =========================================
+PATCH {{baseUrl}}{{donationsPath}}/6e03c775-ef12-4f69-a44b-18a26bd95a1a
+Content-Type: application/json
+
+{
+  "amount": 200,
+  "type": true,
+  "category": "EDUCATION"
+}
+
+### =========================================
+### Donations - Get again (verify update)
+### =========================================
+GET {{baseUrl}}{{donationsPath}}/{{donationId}}
+
+### =========================================
+### Donations - Delete
+### =========================================
+DELETE {{baseUrl}}{{donationsPath}}/9afecfdc-de9c-427a-bc96-882f05a40232
+
+### =========================================
+### Donations - Get after delete (should be 404)
+### =========================================
+GET {{baseUrl}}{{donationsPath}}/{{donationId}}
+
+### =========================================
+### Donors - Delete
+### =========================================
+DELETE {{baseUrl}}{{donorsPath}}/fd4ea217-cbb7-4a61-9df2-e5568e919ba0
+
+### =========================================
+### Donors - Get after delete (should be 404)
+### =========================================
+GET {{baseUrl}}{{donorsPath}}/{{donorId}}
+
+### =========================================
+### Negative tests
+### =========================================
+
+### Donors - Create invalid (missing email) -> 400
+POST {{baseUrl}}{{donorsPath}}
+Content-Type: application/json
+
+{
+  "lastName": "Bad",
+  "firstName": "Request",
+  "dateOfBirth": "2000-01-01",
+  "country": "MA"
+}
+
+### Donations - Create invalid (amount 0) -> 400
+POST {{baseUrl}}{{donationsPath}}
+Content-Type: application/json
+
+{
+  "category": "OTHER",
+  "type": false,
+  "amount": 0,
+  "donorId": "{{donorId}}"
+}
+
+### Donations - Create invalid (unknown donor) -> 404
+POST {{baseUrl}}{{donationsPath}}
+Content-Type: application/json
+
+{
+  "category": "FOOD",
+  "type": false,
+  "amount": 10.00,
+  "donorId": "00000000-0000-0000-0000-000000000000"
+}

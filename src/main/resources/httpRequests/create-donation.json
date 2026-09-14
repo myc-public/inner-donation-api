@@ -1,0 +1,82 @@
+[
+  {
+    "category": "OTHER",
+    "type": true,
+    "amount": 200,
+    "donor": {
+      "donorId": "3a7f2c91-5e64-4b18-9d32-7c8410a5e6bf"
+    }
+  },
+  {
+    "category": "EDUCATION",
+    "type": true,
+    "amount": 200,
+    "donor": {
+      "donorId": "8b2d61f4-93a7-4c52-ae18-5f7290d3c641"
+    }
+  },
+  {
+    "category": "FOOD",
+    "type": true,
+    "amount": 200,
+    "donor": {
+      "donorId": "f491a7c2-6d38-4e91-b527-803c14a9e675"
+    }
+  },
+  {
+    "category": "HEALTH",
+    "type": true,
+    "amount": 150,
+    "donor": {
+      "donorId": "0559a4e7-1adf-4573-927b-f36f4fa21aa9"
+    }
+  },
+  {
+    "category": "CLOTHING",
+    "type": true,
+    "amount": 75,
+    "donor": {
+      "donorId": "6e39b2d8-17a4-4c65-92f1-5087a3d6be24"
+    }
+  },
+  {
+    "category": "FOOD",
+    "type": true,
+    "amount": 500,
+    "donor": {
+      "donorId": "a7531d9e-82c6-4b47-af35-6190e8d2c574"
+    }
+  },
+  {
+    "category": "EDUCATION",
+    "type": true,
+    "amount": 100,
+    "donor": {
+      "donorId": "4c86f2a1-39e7-45bd-8a16-7205d9e3b648"
+    }
+  },
+  {
+    "category": "HEALTH",
+    "type": true,
+    "amount": 250,
+    "donor": {
+      "donorId": "9d41e7b3-52a8-4c69-b015-8362f4a1e597"
+    }
+  },
+  {
+    "category": "OTHER",
+    "type": true,
+    "amount": 50,
+    "donor": {
+      "donorId": "e6283a9f-71d5-4b42-96c8-5047f2a1d839"
+    }
+  },
+  {
+    "category": "FOOD",
+    "type": true,
+    "amount": 1000,
+    "donor": {
+      "donorId": "5f17c4d8-63a2-49e5-b731-9086d2a4c159"
+    }
+  }
+]

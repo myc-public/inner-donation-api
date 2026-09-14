@@ -1,0 +1,139 @@
+#!/usr/bin/env groovy
+def prodParallelStages = [:]
+def preprodParallelStages = [:]
+final jenkinsProperties = 'cicd/jenkins.properties'
+
+pipeline {
+    agent any
+    environment {
+        artifactPath = "artifact/${app}.jar"
+        artifactory_maven = 'myc-ma_projects-maven'
+        credentials_artifactory = 'Artifactory'
+
+        APP_NAME = ''
+        APP_GROUPID = ''
+        APP_PORT = ''
+        APP_VERSION = ""
+        APP_ENV = ""
+        ARTIFACTORY_MAVEN = ''
+        DEPLOYMENT_GROUP = ''
+    }
+
+    parameters {
+        choice(name: 'ENV', choices: ['PREPROD', 'PRODUCTION'], description: 'Choose the deployment environment')
+        choice(name: 'RELEASE', choices: ['release', 'snapshot'], description: 'Choose the artifact type')
+        string(name: 'VERSION', defaultValue: '', description: 'Version to deploy')
+    }
+
+    stages {
+
+        stage('Set Environment') {
+            steps {
+                script {
+                    if (params.ENV == 'PRODUCTION' && params.RELEASE != 'release')
+                        error("SNAPSHOTs should be used in NoProd env only, please choose release to deploy in PRODUCTION")
+                    def props = readProperties file: jenkinsProperties
+                    APP_NAME = props["application.name"]?.trim()
+                    APP_GROUPID = props["application.groupId"]?.trim()
+                    APP_PORT = props["application.port"]?.trim()
+                    APP_VERSION = "${params.VERSION}"
+                    APP_ENV = "${params.ENV}"
+                    APP_RELEASE = "${params.RELEASE}"
+                    ARTIFACTORY_MAVEN = props["artifactory.maven"]?.trim()
+                    DEPLOYMENT_GROUP = props["server.group"]?.trim()
+                    SERVER_PREPROD_IPS = props["server.preprod.ips"]?.trim()
+                    SERVER_PREPROD_USERNAME = props["server.preprod.user"]?.trim()
+                    SERVER_PREPROD_SSHKEY = props["server.preprod.sshkey"]?.trim()
+                    SERVER_PROD_IPS = props["server.prod.ips"]?.trim()
+                    SERVER_PROD_USERNAME = props["server.prod.user"]?.trim()
+                    SERVER_PROD_SSHKEY = props["server.prod.sshkey"]?.trim()
+                    preprodParallelStages = SERVER_PREPROD_IPS.split(';').collectEntries { entry ->
+                        ["deploy_${entry}": deployStages(entry, SERVER_PREPROD_SSHKEY, SERVER_PREPROD_USERNAME)]
+                    }
+                    prodParallelStages = SERVER_PROD_IPS.split(';').collectEntries { entry ->
+                        ["deploy_${entry}": deployStages(entry, SERVER_PROD_SSHKEY, SERVER_PROD_USERNAME)]
+                    }
+                }
+            }
+        }
+
+        stage('Download Jar file') {
+            steps {
+                script {
+                    if (APP_RELEASE == 'snapshot')
+                        APP_VERSION = "${APP_VERSION}-SNAPSHOT"
+                    withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'Artifactory', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+                        sh """
+                        wget --user $USERNAME --password $PASSWORD --no-proxy --no-check-certificate -O ${APP_NAME}.jar https://artifactory.europe.myc-cloud.com/artifactory/${ARTIFACTORY_MAVEN}-${APP_RELEASE}/${APP_GROUPID}/${APP_NAME}/${APP_VERSION}/${APP_NAME}-${APP_VERSION}.jar 
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deploy On-Promise PREPROD') {
+            when { expression { params.ENV == 'PREPROD' } }
+            steps {
+                script { parallel preprodParallelStages }
+            }
+        }
+
+        stage('Deploy On-Promise PROD') {
+            when { expression { APP_ENV == 'PRODUCTION' } }
+            steps {
+                script { parallel prodParallelStages }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'clean up our workspace'
+            deleteDir()
+        }
+    }
+}
+
+def deployStages(serverIp, serverSshKey, serverUser) {
+    return {
+        stage("Deploy: ${serverIp}") {
+            script {
+                sshagent(credentials: [serverSshKey]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${serverUser}@${serverIp} mkdir -p /opt/${APP_NAME}
+                        ssh -o StrictHostKeyChecking=no ${serverUser}@${serverIp} /sbin/service ${APP_NAME} stop || true
+                        ssh -o StrictHostKeyChecking=no ${serverUser}@${serverIp} rm /opt/${APP_NAME}/${APP_NAME}.jar || true
+                        scp -o StrictHostKeyChecking=no ./${APP_NAME}.jar ${serverUser}@${serverIp}:/opt/${APP_NAME}/${APP_NAME}.jar
+                        ssh -o StrictHostKeyChecking=no ${serverUser}@${serverIp} chmod 500 /opt/${APP_NAME}/${APP_NAME}.jar
+                        ssh -o StrictHostKeyChecking=no ${serverUser}@${serverIp} ln -s /opt/${APP_NAME}/${APP_NAME}.jar /etc/init.d/${APP_NAME} || true
+                        ssh -o StrictHostKeyChecking=no ${serverUser}@${serverIp} cp /opt/application.yml /opt/${APP_NAME}/ || true
+                        ssh -o StrictHostKeyChecking=no ${serverUser}@${serverIp} /sbin/service ${APP_NAME} start
+                    """
+                }
+            }
+        }
+        stage("HealthCheck: ${serverIp}") {
+            script {
+                withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'innerHealthCredentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+                    echo "DEPLOYED_HOST value = ${serverIp}"
+                    retry(5) {
+                        sleep 10
+                        timeout(time: 10, unit: 'SECONDS') {
+                            timeout(1) {
+                                def reponse = sh(script: "curl -u $USERNAME:$PASSWORD -I -s http://${serverIp}:${APP_PORT}/management/health |head -n1 |awk '{print \$2}'", returnStdout: true).trim()
+                                println "health ckeck server ${serverIp} status.. " + reponse
+                                waitUntil {
+                                    if (reponse == '200') {
+                                        return (true)
+                                    } else {
+                                        error('the service is still down !')
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

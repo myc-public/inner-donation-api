@@ -1,0 +1,16 @@
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+app:
+  outbox:
+    poll-interval-ms: 200
+    batch-size: 10
+    max-attempts: 3
+    lock-ttl: 5s
+    initial-backoff: 100ms
+    max-backoff: 1s
+myc:
+  context: test

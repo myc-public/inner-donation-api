@@ -1,0 +1,172 @@
+#!/usr/bin/env groovy
+
+// file uneditable 
+final jenkinsProperties = 'cicd/jenkins.properties'
+APPLICATION_NAME = ""
+APPLICATION_GROUPID = ""
+GIT_REPO = ""
+ARTIFACTORY_RELEASE_REPO = ""
+
+pipeline {
+    agent { label 'maven-slave-17' }
+    environment {
+        gitHost = "github.myc.com"
+        gitOrganisation = "myc-ma"
+        gitCredentialsId = 'Github'
+        GIT_BRANCH = "develop"
+    }
+
+    parameters {
+        choice(name: 'BRANCH', choices: ['develop', 'uat', 'preprod', 'master'], description: 'Git Branch to be used by the build')
+    }
+    
+    stages {
+        
+        stage('Init environment') {
+            steps {
+                script {
+                    def props = readProperties file: jenkinsProperties
+                    APPLICATION_NAME    = props["application.name"]?.trim()
+                    APPLICATION_GROUPID = props["application.groupId"]?.trim()
+                    GIT_REPO            = props["git.url"]?.trim()
+                    GIT_BRANCH          = params.BRANCH
+                    ARTIFACTORY_RELEASE_REPO    = "${props['artifactory.maven']?.trim()}-release"
+                }
+            }
+        }
+
+        stage("Initialisation & Checkout") {
+            steps {
+                script {
+                    dir('backend'){
+                        println "Repo : ${GIT_REPO}"
+                        println "Branch : ${GIT_BRANCH}"
+                        sh "rm -rf *"
+
+                        git credentialsId: gitCredentialsId, url: GIT_REPO, branch: GIT_BRANCH
+
+                        def POM = readMavenPom file: 'pom.xml'
+                        VERSION = "${POM.version}"
+                        println "Version : ${VERSION}"
+
+                        isSnapshotVersion = ("${VERSION}" ==~ /(?i)(.*)(-SNAPSHOT)$/)
+
+                        if (params.BRANCH != 'master' && !isSnapshotVersion)
+                            error("RELEASEs should only be built from a master branch, please update the pom's version to be a SNAPSHOT")
+                    }
+                }
+            }
+        }
+       
+        stage('Build project') {
+            steps {
+                script {
+                    dir('backend'){
+                        sh 'mvn --version'
+                        configFileProvider([configFile(fileId: 'global-common-settings', variable: 'MAVEN_SETTINGS')]) {
+                           sh "mvn --settings $MAVEN_SETTINGS clean verify -batch-mode -Dmaven.repo.local=/var/lib/jenkins/wd/.m2"
+                        }
+                    }
+                    println "maven-slave: Done build"
+                }
+            }
+        }
+
+        stage('Sonar Code analysis'){
+            steps {
+                withSonarQubeEnv('SonarQube'){
+                    dir('backend'){
+                        configFileProvider([configFile(fileId: 'global-common-settings', variable: 'MAVEN_SETTINGS')]) {
+                            sh 'mvn sonar:sonar --settings $MAVEN_SETTINGS -batch-mode -Dmaven.repo.local=/var/lib/jenkins/wd/.m2'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("Sonar Quality Gate") {
+            steps {
+              timeout(time: 1, unit: 'MINUTES') {
+                waitForQualityGate abortPipeline: true
+              }
+            }
+        }
+
+        stage ('Tagging') {
+            when {
+                // Only if the source branch is "master"
+                expression { params.BRANCH == 'master' }
+            }
+            steps {
+                dir('backend'){
+                    configFileProvider([configFile(fileId: 'global-common-settings', variable: 'MAVEN_SETTINGS')]) {
+                        script {
+                            // version management: delete 'SNAPSHOT' flag from pom version
+                            sh "mvn --settings $MAVEN_SETTINGS versions:set -DremoveSnapshot -DautoVersionSubmodules=true -DgenerateBackupPoms=false"
+                            def POM = readMavenPom file: 'pom.xml'
+                            // check pom version conformity, must be like x.y.z
+                            println "the pom version is ${POM.version}"
+                            isMatched = ("${POM.version}" ==~ /^\d+\.\d+\.\d+$/)
+                            if(!isMatched){
+                                error ("The version specified in pom file is not correct, must be three digits like: 0.1.3")
+                            }
+                            // create tag
+                            withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: gitCredentialsId, usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD']]) {
+                                sh """
+                                    git config user.email "yousri.bendiabdellah.magilife@myc.ma"
+                                    git config user.name "yousri.bendiabdellah.magilife"
+                                    git tag -d v${POM.version} | true
+                                    git tag -a v${POM.version} -m "Release version ${POM.version} by Jenkins"
+                                    git push  https://yousri.bendiabdellah.magilife:${env.GIT_PASSWORD}@${gitHost}/${gitOrganisation}/${APPLICATION_NAME}.git v${POM.version}
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Push Artifact') {
+            steps {
+                script {
+                    dir('backend'){
+                        // check if the artifact already existe
+                        withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId:'artifactory', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+                            // get version number from pom file
+                            def POM = readMavenPom file: 'pom.xml'
+
+                            if(params.BRANCH == 'master'){
+                                // check if package already existe
+                                final def CODE = sh(script: "curl -I -s -k -u $USERNAME:$PASSWORD https://artifactory.europe.myc-cloud.com/artifactory/api/storage/${ARTIFACTORY_RELEASE_REPO}/${APPLICATION_GROUPID}/${APPLICATION_NAME}/${POM.version}/${APPLICATION_NAME}-${POM.version}\\.jar |head -n1 |awk '{print \$2}'", returnStdout: true).trim()
+                                echo "Check if the artifact already existe : ${CODE}"
+                                if('404' == "$CODE"){
+                                    // start pushing artifact
+                                    configFileProvider([configFile(fileId: 'global-common-settings', variable: 'MAVEN_SETTINGS')]) {
+                                        sh "mvn --settings $MAVEN_SETTINGS deploy -DskipTests=true -DskipITs=true -DskipOwasp=true"
+                                    }
+                                }
+                                else{
+                                    error ("The version already existe, you can not override release versions!")
+                                }
+                            }
+                            else{
+                                // pushing artifact for snapshot
+                                configFileProvider([configFile(fileId: 'global-common-settings', variable: 'MAVEN_SETTINGS')]) {
+                                    sh "mvn --settings $MAVEN_SETTINGS deploy -DskipTests=true -DskipITs=true -DskipOwasp=true"
+                                }
+                            }
+                        }                        
+                    }
+                    println "Push Artifact OK !"
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo 'clean up our workspace'
+            deleteDir()
+        }
+    }
+}

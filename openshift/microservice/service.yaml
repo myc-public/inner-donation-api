@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: donation-api
+  namespace: gregorie769-dev
+spec:
+  selector:
+    app: donation-api
+
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+  type: ClusterIP

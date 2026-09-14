@@ -1,0 +1,182 @@
+#!/usr/bin/env groovy
+
+// file uneditable 
+final jenkinsProperties = 'cicd/jenkins.properties'
+APP_NAME = ""
+APPLICATION_GROUPID = ""
+APPLICATION_PORT = ""
+GIT_REPO = ""
+ARTIFACTORY_MAVEN = ""
+SERVER_DEV_USER = ""
+SERVER_DEV_IP = ""
+SERVER_DEV_SSHKEY = ""
+SERVER_UAT_USER = ""
+SERVER_UAT_IP = ""
+SERVER_UAT_SSHKEY = ""
+
+pipeline {
+    agent any
+    environment {
+        credentials_artifactory = "Artifactory"
+        gitCredentialsId = 'Github'
+    }
+
+    parameters {
+        choice(choices: ['DEV', 'UAT'], name: 'ENV', description: 'Choose the deployment environment')
+    }
+
+    stages {
+
+        stage('Init environment') {
+            steps {
+                script {
+                    def props = readProperties file: jenkinsProperties
+                    APP_NAME = props["application.name"]?.trim()
+                    APPLICATION_GROUPID = props["application.groupId"]?.trim()
+                    APPLICATION_PORT = props["application.port"]?.trim()
+                    GIT_REPO = props["git.url"]?.trim()
+                    ARTIFACTORY_MAVEN = props["artifactory.maven"]?.trim()
+
+                    SERVER_DEV_USER = props["server.dev.user"]?.trim()
+                    SERVER_DEV_IP = props["server.dev.ip"]?.trim()
+                    SERVER_DEV_SSHKEY = props["server.dev.sshkey"]?.trim()
+
+                    SERVER_UAT_USER = props["server.uat.user"]?.trim()
+                    SERVER_UAT_IP = props["server.uat.ip"]?.trim()
+                    SERVER_UAT_SSHKEY = props["server.uat.sshkey"]?.trim()
+                }
+            }
+        }
+
+        stage("Initialisation & Checkout") {
+            steps {
+                script {
+                    dir('backend'){
+                        GIT_BRANCH = getBranch(params.ENV)
+
+                        println "Repo : ${GIT_REPO}"
+                        println "Branch : ${GIT_BRANCH}"
+                        sh "rm -rf *"
+
+                        git credentialsId: gitCredentialsId, url: GIT_REPO, branch: GIT_BRANCH
+
+                        def POM = readMavenPom file: 'pom.xml'
+                        VERSION = "${POM.version}"
+                        println "Version : ${VERSION}"
+
+                        isSnapshotVersion = ("${VERSION}" ==~ /(?i)(.*)(-SNAPSHOT)$/)
+                    }
+                }
+            }
+        }
+
+        stage('Deploy On-Promise') {
+            steps {
+                script {
+                    SERVER_IP = getServerIp(params.ENV)
+                    SERVER_USER = getServerUser(params.ENV)
+                    SERVER_SSHKEY = getServerSshKey(params.ENV)
+
+                    sshagent(credentials: [SERVER_SSHKEY]) {
+                        sh """
+                            ssh ${SERVER_USER}@${SERVER_IP} /sbin/service ${APP_NAME} stop || true
+                        """
+                        if (isSnapshotVersion) {
+                            println "SNAPSHOT"
+                            withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: credentials_artifactory, usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+                                sh """
+                                wget --user $USERNAME --password $PASSWORD --no-proxy --no-check-certificate -O ${APP_NAME}.jar https://artifactory.europe.myc-cloud.com/artifactory/${ARTIFACTORY_MAVEN}-snapshot/${APPLICATION_GROUPID}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.jar
+                                """
+                                echo 'the snapshot package has been downloaded'
+                            }
+                        } else {
+                            println "RELEASE"
+                            withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'Artifactory', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+                                sh """
+                                wget --user $USERNAME --password $PASSWORD --no-proxy --no-check-certificate -O ${APP_NAME}.jar https://artifactory.europe.myc-cloud.com/artifactory/${ARTIFACTORY_MAVEN}-release/${APPLICATION_GROUPID}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.jar
+                                """
+                                echo 'the release package has been downloaded'
+                            }
+                        }
+                        sh """
+                            ssh ${SERVER_USER}@${SERVER_IP} mkdir -p /opt/${APP_NAME}
+                            ssh ${SERVER_USER}@${SERVER_IP} rm /opt/${APP_NAME}/${APP_NAME}.jar || true
+                            scp ./${APP_NAME}.jar ${SERVER_USER}@${SERVER_IP}:/opt/${APP_NAME}/${APP_NAME}.jar
+                            ssh ${SERVER_USER}@${SERVER_IP} chmod 500 /opt/${APP_NAME}/${APP_NAME}.jar
+                            ssh ${SERVER_USER}@${SERVER_IP} ln -s /opt/${APP_NAME}/${APP_NAME}.jar /etc/init.d/${APP_NAME} || true
+                            ssh ${SERVER_USER}@${SERVER_IP} cp /opt/application.yml /opt/${APP_NAME}/ || true
+                            ssh ${SERVER_USER}@${SERVER_IP} yes | cp /opt/app-v2.conf /opt/${APP_NAME}/${APP_NAME}.conf || true
+                            ssh ${SERVER_USER}@${SERVER_IP} /sbin/service ${APP_NAME} start
+                        """
+                        DEPLOYED_HOST = SERVER_IP
+                    }
+                }
+            }
+        }
+
+        stage('Waiting for deployed service to be UP') {
+            steps {
+                script {
+                    withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'innerHealthCredentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+                        echo "DEPLOYED_HOST value = ${DEPLOYED_HOST}"
+                        retry(12) {
+                            sleep 10
+                            timeout(time: 5, unit: 'SECONDS') {
+                                timeout(1) {
+                                    def reponse = sh(script: "curl -u $USERNAME:$PASSWORD -I -s http://${DEPLOYED_HOST}:${APPLICATION_PORT}/management/health |head -n1 |awk '{print \$2}'", returnStdout: true).trim()
+                                    println "health ckeck status.. " + reponse
+                                    waitUntil {
+                                        if (reponse == '200') {
+                                            return (true)
+                                        } else {
+                                            error('the service is still down !')
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'clean up our workspace'
+            deleteDir()
+        }
+    }
+}
+
+def getServerIp(environment) {
+    if ("UAT".equals(environment)) {
+        return SERVER_UAT_IP;
+    } else {
+        return SERVER_DEV_IP;
+    }
+}
+
+def getServerUser(environment) {
+    if ("UAT".equals(environment)) {
+        return SERVER_UAT_USER;
+    } else {
+        return SERVER_DEV_USER;
+    }
+}
+
+def getServerSshKey(environment) {
+    if ("UAT".equals(environment)) {
+        return SERVER_UAT_SSHKEY;
+    } else {
+        return SERVER_DEV_SSHKEY;
+    }
+}
+
+def getBranch(environment) {
+    if ("UAT".equals(environment)) {
+        return "uat";
+    } else {
+        return "develop";
+    }
+}
