@@ -18,7 +18,7 @@ pipeline {
 
     options {
         timestamps()
-        timeout(time: 10, unit: 'MINUTES')
+        timeout(time: 20, unit: 'MINUTES')
         disableConcurrentBuilds()
     }
 
@@ -47,7 +47,7 @@ pipeline {
                     isSnapshotVersion = ("${VERSION}" ==~ /(?i)(.*)(-SNAPSHOT)$/)
 
                     if (params.BRANCH != 'main' && !isSnapshotVersion) {
-                        error("RELEASE should only be built from the main branch, please update the pom's version to be a SNAPSHOT")
+                        error("RELEASEs should only be built from the main branch, please update the pom's version to be a SNAPSHOT")
                     }
                 }
             }
@@ -107,7 +107,7 @@ pipeline {
                             sh '''
                                 mvn --settings $MAVEN_SETTINGS org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -batch-mode \
                                     -Dsonar.organization=myc-public \
-                                    -Dsonar.projectKey=myc-public_inner-api-donation
+                                    -Dsonar.projectKey=myc-public_inner-donation-api
                             '''
                         }
                     }
