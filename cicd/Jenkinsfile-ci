@@ -1,0 +1,224 @@
+#!/usr/bin/env groovy
+
+final jenkinsProperties = 'cicd/jenkins.properties'
+APPLICATION_NAME = ""
+APPLICATION_GROUPID = ""
+GIT_REPO = ""
+NOTIFICATION_MAIL = ""
+
+pipeline {
+    agent {
+        kubernetes {
+            cloud 'openshift'
+            inheritFrom 'java-maven'
+            agentContainer 'maven'
+            agentInjection true
+        }
+    }
+
+    options {
+        timestamps()
+        timeout(time: 10, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    parameters {
+        choice(name: 'BRANCH', choices: ['develop', 'uat', 'preprod', 'main'], description: 'Git Branch to be used by the build')
+    }
+
+    stages {
+
+
+        stage('Workspace Cleanup') {
+            steps {
+                echo 'Nettoyage du workspace avant build'
+                deleteDir()
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    def POM = readMavenPom file: 'pom.xml'
+                    VERSION = "${POM.version}"
+                    echo "Version (pom.xml) : ${VERSION}"
+
+                    isSnapshotVersion = ("${VERSION}" ==~ /(?i)(.*)(-SNAPSHOT)$/)
+
+                    if (params.BRANCH != 'main' && !isSnapshotVersion) {
+                        error("RELEASE should only be built from the main branch, please update the pom's version to be a SNAPSHOT")
+                    }
+                }
+            }
+        }
+
+        stage('Init environment') {
+            steps {
+                script {
+                    def props = readProperties file: jenkinsProperties
+                    APPLICATION_NAME    = props["application.name"]?.trim()
+                    APPLICATION_GROUPID = props["application.groupId"]?.trim()
+                    GIT_REPO            = props["git.url"]?.trim()
+                    NOTIFICATION_MAIL   = props["notification.email"]?.trim()
+                    GIT_BRANCH          = params.BRANCH
+                    echo "Repo (jenkins.properties) : ${GIT_REPO}"
+                    echo "Branche demandée (paramètre BRANCH) : ${GIT_BRANCH}"
+                }
+            }
+        }
+
+        stage('Toolchain Validation') {
+            steps {
+                script {
+                    def javaVersionOutput = sh(script: 'java -version 2>&1', returnStdout: true).trim()
+                    echo javaVersionOutput
+                    def allowedJavaVersions = ['"17.', '"21.']
+                    if (!allowedJavaVersions.any { javaVersionOutput.contains(it) }) {
+                        error("Java 17 ou 21 requis - version detectee: ${javaVersionOutput.readLines()[0]}")
+                    }
+
+                    def mvnVersionOutput = sh(script: 'mvn --version', returnStdout: true).trim()
+                    echo mvnVersionOutput
+                }
+            }
+        }
+
+        stage('Build project') {
+            steps {
+                configFileProvider([configFile(fileId: 'nexus-maven-settings', variable: 'MAVEN_SETTINGS')]) {
+                    withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+                        sh 'mvn --settings $MAVEN_SETTINGS clean verify -batch-mode -U'
+                    }
+                }
+            }
+            post {
+                always {
+                    junit testResults: 'target/surefire-reports/*.xml', allowEmptyResults: true
+                }
+            }
+        }
+
+        stage('Sonar Code analysis') {
+            steps {
+                configFileProvider([configFile(fileId: 'nexus-maven-settings', variable: 'MAVEN_SETTINGS')]) {
+                    withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+                        withSonarQubeEnv('sonarqube') {
+                            sh '''
+                                mvn --settings $MAVEN_SETTINGS org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -batch-mode \
+                                    -Dsonar.organization=myc-public \
+                                    -Dsonar.projectKey=myc-public_inner-api-donation
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Sonar Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Tagging') {
+            when {
+                expression { params.BRANCH == 'main' }
+            }
+            steps {
+                echo """
+                ================================================================
+                Tagging de release DESACTIVE pour l'instant.
+                Pre-requis avant activation (cf. audit CI/CD Blueprint) :
+                  1. Compte de service Git dedie (pas d'identite personnelle)
+                  2. Credential Jenkins pour ce compte de service
+                  3. Politique de tags immuables (pas de delete + recreate)
+                  4. Validation du format de version (x.y.z) avant tag
+                  5. Commit retour du pom.xml apres retrait du -SNAPSHOT
+                ================================================================
+                """
+            }
+        }
+
+        stage('Archive Artifact') {
+            steps {
+                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            }
+        }
+
+        stage('Publish Metadata') {
+            steps {
+                script {
+                    def buildTimestamp = sh(script: 'date -u +%Y-%m-%dT%H:%M:%SZ', returnStdout: true).trim()
+                    def buildInfo = """\
+commit=${env.GIT_COMMIT}
+branch=${params.BRANCH}
+version=${VERSION}
+buildNumber=${env.BUILD_NUMBER}
+buildUrl=${env.BUILD_URL}
+timestamp=${buildTimestamp}
+"""
+                    writeFile file: 'build-info.txt', text: buildInfo
+                    echo buildInfo
+                }
+                archiveArtifacts artifacts: 'build-info.txt', fingerprint: true
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'clean up our workspace'
+            deleteDir()
+        }
+        success {
+            script {
+                if (NOTIFICATION_MAIL) {
+                    try {
+                        mail to: NOTIFICATION_MAIL,
+                             subject: "[${APPLICATION_NAME}] BUILD SUCCESS #${env.BUILD_NUMBER} (${params.BRANCH})",
+                             body: """\
+Build reussi.
+
+Application : ${APPLICATION_NAME}
+Branche     : ${params.BRANCH}
+Version     : ${VERSION}
+Build       : ${env.BUILD_NUMBER}
+Commit      : ${env.GIT_COMMIT}
+URL         : ${env.BUILD_URL}
+"""
+                    } catch (Exception e) {
+                        echo "Envoi du mail de notification impossible (SMTP non configure sur Jenkins ?) : ${e.getMessage()}"
+                    }
+                } else {
+                    echo "Notification email non envoyee : notification.email n'est pas renseigne dans cicd/jenkins.properties."
+                }
+            }
+        }
+        failure {
+            script {
+                if (NOTIFICATION_MAIL) {
+                    try {
+                        mail to: NOTIFICATION_MAIL,
+                             subject: "[${APPLICATION_NAME}] BUILD FAILURE #${env.BUILD_NUMBER} (${params.BRANCH})",
+                             body: """\
+Le build a echoue.
+
+Application : ${APPLICATION_NAME}
+Branche     : ${params.BRANCH}
+Build       : ${env.BUILD_NUMBER}
+Commit      : ${env.GIT_COMMIT}
+Logs        : ${env.BUILD_URL}console
+"""
+                    } catch (Exception e) {
+                        echo "Envoi du mail de notification impossible (SMTP non configure sur Jenkins ?) : ${e.getMessage()}"
+                    }
+                } else {
+                    echo "Notification email non envoyee : notification.email n'est pas renseigne dans cicd/jenkins.properties."
+                }
+            }
+        }
+    }
+}
