@@ -5,6 +5,11 @@ APPLICATION_NAME = ""
 APPLICATION_GROUPID = ""
 GIT_REPO = ""
 NOTIFICATION_MAIL = ""
+ARTIFACT_ID = ""
+ARTIFACT_GROUPID = ""
+ARTIFACT_PACKAGING = ""
+ARTIFACT_FILE = ""
+ARTIFACT_SHA256 = ""
 
 pipeline {
     agent {
@@ -142,28 +147,146 @@ pipeline {
             }
         }
 
-        stage('Archive Artifact') {
+        stage('Verify Artifact') {
             steps {
-                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+                script {
+                    def pom = readMavenPom file: 'pom.xml'
+                    ARTIFACT_ID        = pom.artifactId
+                    ARTIFACT_GROUPID   = pom.groupId ?: pom.parent.groupId
+                    ARTIFACT_PACKAGING = pom.packaging ?: 'jar'
+
+                    if (!(VERSION ==~ /\d+\.\d+\.\d+(-SNAPSHOT)?/)) {
+                        error("Version '${VERSION}' invalide : format attendu x.y.z ou x.y.z-SNAPSHOT")
+                    }
+
+                    ARTIFACT_FILE = "target/${ARTIFACT_ID}-${VERSION}.${ARTIFACT_PACKAGING}"
+                    if (!fileExists(ARTIFACT_FILE)) {
+                        error("Artefact introuvable : ${ARTIFACT_FILE} (build incomplet ?)")
+                    }
+                    def size = sh(script: "stat -c %s ${ARTIFACT_FILE}", returnStdout: true).trim() as long
+                    if (size == 0) {
+                        error("Artefact vide : ${ARTIFACT_FILE}")
+                    }
+                    sh "jar tf ${ARTIFACT_FILE} > /dev/null"
+                    echo "Artefact verifie : ${ARTIFACT_FILE} (${size} octets)"
+                }
             }
         }
 
-        stage('Publish Metadata') {
+        stage('Checksum & Metadata') {
             steps {
                 script {
+                    ARTIFACT_SHA256 = sh(script: "sha256sum ${ARTIFACT_FILE} | cut -d' ' -f1", returnStdout: true).trim()
+                    writeFile file: "${ARTIFACT_FILE}.sha256", text: "${ARTIFACT_SHA256}  ${ARTIFACT_FILE.tokenize('/').last()}\n"
+
+                    def gitCommit = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
                     def buildTimestamp = sh(script: 'date -u +%Y-%m-%dT%H:%M:%SZ', returnStdout: true).trim()
                     def buildInfo = """\
-commit=${env.GIT_COMMIT}
-branch=${params.BRANCH}
-version=${VERSION}
-buildNumber=${env.BUILD_NUMBER}
-buildUrl=${env.BUILD_URL}
-timestamp=${buildTimestamp}
+artifact.groupId=${ARTIFACT_GROUPID}
+artifact.artifactId=${ARTIFACT_ID}
+artifact.version=${VERSION}
+artifact.packaging=${ARTIFACT_PACKAGING}
+artifact.sha256=${ARTIFACT_SHA256}
+git.commit=${gitCommit}
+git.branch=${params.BRANCH}
+jenkins.buildNumber=${env.BUILD_NUMBER}
+jenkins.job=${env.JOB_NAME}
+jenkins.buildUrl=${env.BUILD_URL}
+build.timestamp=${buildTimestamp}
 """
-                    writeFile file: 'build-info.txt', text: buildInfo
+                    writeFile file: 'build-info.properties', text: buildInfo
                     echo buildInfo
                 }
-                archiveArtifacts artifacts: 'build-info.txt', fingerprint: true
+            }
+        }
+
+        stage('Archive Artifact') {
+            steps {
+                archiveArtifacts artifacts: "${ARTIFACT_FILE}, ${ARTIFACT_FILE}.sha256, build-info.properties", fingerprint: true
+            }
+        }
+
+        // Publie exactement le jar verifie/analyse (deploy-file, pas de nouveau package).
+        // Le pom, le sha256 et build-info.properties sont deployes avec le jar.
+        // TODO: reactiver l'immutabilite des releases avant la mise en prod : passer la
+        //       "Deployment policy" du repo Nexus maven-releases sur "Disable redeploy".
+        //       Pour l'instant "Allow redeploy" permet d'ecraser une meme version.
+        stage('Publish to Nexus') {
+            steps {
+                configFileProvider([configFile(fileId: 'nexus-maven-settings', variable: 'MAVEN_SETTINGS')]) {
+                    withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+                        script {
+                            def repoId   = isSnapshotVersion ? 'nexus-snapshots' : 'nexus-releases'
+                            def repoNode = isSnapshotVersion ? 'snapshotRepository' : 'repository'
+                            def repoUrl  = sh(
+                                script: "mvn --settings \$MAVEN_SETTINGS -B -q help:evaluate -Dexpression=project.distributionManagement.${repoNode}.url -DforceStdout",
+                                returnStdout: true
+                            ).trim().readLines().last()
+                            echo "Publication vers ${repoId} : ${repoUrl}"
+
+                            def rc = sh(script: """
+                                mvn --settings \$MAVEN_SETTINGS -B deploy:deploy-file \\
+                                    -DpomFile=pom.xml \\
+                                    -Dfile=${ARTIFACT_FILE} \\
+                                    -DrepositoryId=${repoId} \\
+                                    -Durl=${repoUrl} \\
+                                    -Dfiles=build-info.properties,${ARTIFACT_FILE}.sha256 \\
+                                    -Dclassifiers=build-info,sha256 \\
+                                    -Dtypes=properties,txt > target/nexus-publish.log 2>&1
+                            """, returnStatus: true)
+                            sh 'cat target/nexus-publish.log'
+                            if (rc != 0) {
+                                error("Publication Nexus en echec (code ${rc}) - voir target/nexus-publish.log")
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'target/nexus-publish.log', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Verify Publication') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+                    script {
+                        def jarUrl = sh(
+                            script: "grep -oE 'Uploaded to [^ ]+: [^ ]+\\.${ARTIFACT_PACKAGING}' target/nexus-publish.log | tail -1 | awk '{print \$4}'",
+                            returnStdout: true
+                        ).trim()
+                        if (!jarUrl) {
+                            error("URL de l'artefact publie introuvable dans target/nexus-publish.log")
+                        }
+
+                        sh "curl -fsS -u \"\$NEXUS_USERNAME:\$NEXUS_PASSWORD\" -o target/nexus-verify.bin \"${jarUrl}\""
+                        def remoteSha256 = sh(script: "sha256sum target/nexus-verify.bin | cut -d' ' -f1", returnStdout: true).trim()
+                        if (remoteSha256 != ARTIFACT_SHA256) {
+                            error("SHA-256 different apres publication : local=${ARTIFACT_SHA256} nexus=${remoteSha256}")
+                        }
+                        echo "Publication verifiee : ${jarUrl} (sha256=${remoteSha256})"
+
+                        // Version exacte publiee (horodatee pour un SNAPSHOT) : point d'entree du CD
+                        def fileName = jarUrl.tokenize('/').last()
+                        def publishedVersion = fileName.substring(ARTIFACT_ID.length() + 1, fileName.length() - ARTIFACT_PACKAGING.length() - 1)
+                        def artifactVersion = """\
+groupId=${ARTIFACT_GROUPID}
+artifactId=${ARTIFACT_ID}
+packaging=${ARTIFACT_PACKAGING}
+version=${VERSION}
+publishedVersion=${publishedVersion}
+url=${jarUrl}
+sha256=${ARTIFACT_SHA256}
+git.commit=${env.GIT_COMMIT}
+jenkins.buildNumber=${env.BUILD_NUMBER}
+"""
+                        writeFile file: 'artifact-version.properties', text: artifactVersion
+                        echo artifactVersion
+                    }
+                }
+                archiveArtifacts artifacts: 'artifact-version.properties', fingerprint: true
             }
         }
     }
