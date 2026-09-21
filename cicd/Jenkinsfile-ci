@@ -10,6 +10,8 @@ ARTIFACT_GROUPID = ""
 ARTIFACT_PACKAGING = ""
 ARTIFACT_FILE = ""
 ARTIFACT_SHA256 = ""
+TARGET_BRANCH = ""
+RELEASE_TYPE = ""
 
 pipeline {
     agent {
@@ -34,6 +36,23 @@ pipeline {
     stages {
 
 
+        // Doit passer AVANT le checkout : la branche choisie determine quoi cloner
+        // et le type d'artefact (main -> RELEASE / maven-releases, sinon SNAPSHOT / maven-snapshots).
+        stage('Init Parameters') {
+            steps {
+                script {
+                    def allowedBranches = ['develop', 'uat', 'preprod', 'main']
+                    if (!(params.BRANCH in allowedBranches)) {
+                        error("Parametre BRANCH invalide : '${params.BRANCH}' (attendu : ${allowedBranches.join(', ')})")
+                    }
+                    TARGET_BRANCH = params.BRANCH
+                    RELEASE_TYPE  = (TARGET_BRANCH == 'main') ? 'RELEASE' : 'SNAPSHOT'
+                    isSnapshotVersion = (RELEASE_TYPE == 'SNAPSHOT')
+                    echo "Branche GitHub : ${TARGET_BRANCH} | Type d'artefact : ${RELEASE_TYPE} | Repository Nexus : ${isSnapshotVersion ? 'maven-snapshots' : 'maven-releases'}"
+                }
+            }
+        }
+
         stage('Workspace Cleanup') {
             steps {
                 echo 'Nettoyage du workspace avant build'
@@ -43,16 +62,34 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                checkout scm
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${TARGET_BRANCH}"]],
+                    userRemoteConfigs: scm.userRemoteConfigs,
+                    extensions: [[$class: 'LocalBranch', localBranch: TARGET_BRANCH]]
+                ])
                 script {
                     def POM = readMavenPom file: 'pom.xml'
-                    VERSION = "${POM.version}"
-                    echo "Version (pom.xml) : ${VERSION}"
+                    def pomVersion = "${POM.version}".toString()
+                    echo "Version (pom.xml) : ${pomVersion}"
 
-                    isSnapshotVersion = ("${VERSION}" ==~ /(?i)(.*)(-SNAPSHOT)$/)
+                    // Version publiee = version de base du pom + suffixe impose par la branche
+                    def baseVersion = pomVersion.replaceFirst(/(?i)[-.](SNAPSHOT|RELEASE)$/, '')
+                    VERSION = "${baseVersion}-${RELEASE_TYPE}".toString()
+                    echo "Version publiee : ${VERSION}"
+                }
+            }
+        }
 
-                    if (params.BRANCH != 'main' && !isSnapshotVersion) {
-                        error("RELEASEs should only be built from the main branch, please update the pom's version to be a SNAPSHOT")
+        stage('Set Version') {
+            when {
+                expression { readMavenPom(file: 'pom.xml').version != VERSION }
+            }
+            steps {
+                configFileProvider([configFile(fileId: 'nexus-maven-settings', variable: 'MAVEN_SETTINGS')]) {
+                    withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+                        // Modifie le pom du workspace uniquement (rien n'est recommite dans git)
+                        sh "mvn --settings \$MAVEN_SETTINGS -B org.codehaus.mojo:versions-maven-plugin:2.17.1:set -DnewVersion=${VERSION} -DgenerateBackupPoms=false"
                     }
                 }
             }
@@ -66,7 +103,7 @@ pipeline {
                     APPLICATION_GROUPID = props["application.groupId"]?.trim()
                     GIT_REPO            = props["git.url"]?.trim()
                     NOTIFICATION_MAIL   = props["notification.email"]?.trim()
-                    GIT_BRANCH          = params.BRANCH
+                    GIT_BRANCH          = TARGET_BRANCH
                     echo "Repo (jenkins.properties) : ${GIT_REPO}"
                     echo "Branche demandée (paramètre BRANCH) : ${GIT_BRANCH}"
                 }
@@ -155,8 +192,8 @@ pipeline {
                     ARTIFACT_GROUPID   = pom.groupId ?: pom.parent.groupId
                     ARTIFACT_PACKAGING = pom.packaging ?: 'jar'
 
-                    if (!(VERSION ==~ /\d+\.\d+\.\d+(-SNAPSHOT)?/)) {
-                        error("Version '${VERSION}' invalide : format attendu x.y.z ou x.y.z-SNAPSHOT")
+                    if (!(VERSION ==~ /\d+\.\d+\.\d+-(SNAPSHOT|RELEASE)/) || !VERSION.endsWith("-${RELEASE_TYPE}")) {
+                        error("Version '${VERSION}' invalide : format attendu x.y.z-${RELEASE_TYPE} pour la branche ${TARGET_BRANCH}")
                     }
 
                     ARTIFACT_FILE = "target/${ARTIFACT_ID}-${VERSION}.${ARTIFACT_PACKAGING}"
