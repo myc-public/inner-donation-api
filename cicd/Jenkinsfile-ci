@@ -256,13 +256,13 @@ build.timestamp=${buildTimestamp}
                             def repoId   = isSnapshotVersion ? 'nexus-snapshots' : 'nexus-releases'
                             def repoNode = isSnapshotVersion ? 'snapshotRepository' : 'repository'
                             def repoUrl  = sh(
-                                script: "mvn --settings \$MAVEN_SETTINGS -B -q help:evaluate -Dexpression=project.distributionManagement.${repoNode}.url -DforceStdout",
+                                script: "mvn --settings \$MAVEN_SETTINGS -B -q org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate -Dexpression=project.distributionManagement.${repoNode}.url -DforceStdout",
                                 returnStdout: true
                             ).trim().readLines().last()
                             echo "Publication vers ${repoId} : ${repoUrl}"
 
                             def rc = sh(script: """
-                                mvn --settings \$MAVEN_SETTINGS -B deploy:deploy-file \\
+                                mvn --settings \$MAVEN_SETTINGS -B org.apache.maven.plugins:maven-deploy-plugin:3.1.3:deploy-file \\
                                     -DpomFile=pom.xml \\
                                     -Dfile=${ARTIFACT_FILE} \\
                                     -DrepositoryId=${repoId} \\
