@@ -12,6 +12,12 @@ ARTIFACT_FILE = ""
 ARTIFACT_SHA256 = ""
 TARGET_BRANCH = ""
 RELEASE_TYPE = ""
+GITOPS_URL = ""
+GITOPS_APP = ""
+GITOPS_ENV = ""
+IMAGE_TAG = ""
+IMAGE_DIGEST = ""
+OPENSHIFT_NAMESPACE = ""
 
 pipeline {
     agent {
@@ -104,6 +110,11 @@ pipeline {
                     APPLICATION_GROUPID = props["application.groupId"]?.trim()
                     GIT_REPO            = props["git.url"]?.trim()
                     NOTIFICATION_MAIL   = props["notification.email"]?.trim()
+                    GITOPS_URL          = props["gitops.url"]?.trim()
+                    GITOPS_APP          = props["gitops.app"]?.trim()
+                    if (!GITOPS_URL || !GITOPS_APP) {
+                        error("gitops.url et gitops.app doivent etre renseignes dans cicd/jenkins.properties")
+                    }
                     GIT_BRANCH          = TARGET_BRANCH
                     echo "Repo (jenkins.properties) : ${GIT_REPO}"
                     echo "Branche demandée (paramètre BRANCH) : ${GIT_BRANCH}"
@@ -325,6 +336,123 @@ jenkins.buildNumber=${env.BUILD_NUMBER}
                     }
                 }
                 archiveArtifacts artifacts: 'artifact-version.properties', fingerprint: true
+            }
+        }
+
+        // Image = jar verifie (SHA-256 identique a Nexus) + Dockerfile, via BuildConfig binaire OpenShift.
+        // Poussee dans le registry interne (ImageStream). Tag immuable : <version>-<sha commit>-b<build>.
+        stage('Build Image') {
+            steps {
+                script {
+                    def gitShort = sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
+                    IMAGE_TAG = "${VERSION}-${gitShort}-b${env.BUILD_NUMBER}".toString()
+                    OPENSHIFT_NAMESPACE = sh(script: 'cat /var/run/secrets/kubernetes.io/serviceaccount/namespace', returnStdout: true).trim()
+
+                    sh """
+                        rm -rf target/image-context && mkdir -p target/image-context
+                        cp ${ARTIFACT_FILE} target/image-context/app.jar
+                        cp cicd/openshift/Dockerfile target/image-context/Dockerfile
+                    """
+
+                    withEnv(["IMAGE_NAME=${GITOPS_APP}", "IMAGE_TAG=${IMAGE_TAG}"]) {
+                        container('oc') {
+                            sh '''
+                                set -eu
+                                oc apply -f cicd/openshift/build.yaml
+                                oc start-build "bc/${IMAGE_NAME}" --from-dir=target/image-context --follow --wait
+                                oc tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
+                                oc get istag "${IMAGE_NAME}:${IMAGE_TAG}" -o jsonpath='{.image.metadata.name}' > target/image-digest.txt
+                            '''
+                        }
+                    }
+                    IMAGE_DIGEST = readFile('target/image-digest.txt').trim()
+                    if (!IMAGE_DIGEST) {
+                        error("Image ${GITOPS_APP}:${IMAGE_TAG} introuvable dans le registry apres le build")
+                    }
+                    echo "Image poussee : ${OPENSHIFT_NAMESPACE}/${GITOPS_APP}:${IMAGE_TAG} (${IMAGE_DIGEST})"
+                }
+            }
+        }
+
+        // Ecrit le tag dans le depot GitOps (overlay de l'environnement) ; Argo CD synchronise ensuite.
+        //   develop -> overlays/dev  : commit direct sur main (deploiement automatique)
+        //   autres  -> branche promote/... a merger par PR (uat, preprod, prod)
+        stage('Update GitOps') {
+            steps {
+                script {
+                    def envByBranch = [develop: 'dev', uat: 'uat', preprod: 'preprod', main: 'prod']
+                    GITOPS_ENV = envByBranch[TARGET_BRANCH]
+                    def directCommit = (GITOPS_ENV == 'dev') ? 'true' : 'false'
+
+                    withCredentials([usernamePassword(credentialsId: 'gitops-git-credentials', usernameVariable: 'GITOPS_USER', passwordVariable: 'GITOPS_TOKEN')]) {
+                        withEnv(["GITOPS_URL=${GITOPS_URL}", "GITOPS_APP=${GITOPS_APP}", "GITOPS_ENV=${GITOPS_ENV}",
+                                 "IMAGE_TAG=${IMAGE_TAG}", "DIRECT_COMMIT=${directCommit}"]) {
+                            sh '''
+                                set -eu
+                                # Identifiants fournis via GIT_ASKPASS : rien dans l'URL ni dans les logs
+                                ASKPASS="$(pwd)/target/git-askpass.sh"
+                                cat > "$ASKPASS" <<'EOF'
+#!/bin/sh
+case "$1" in
+  Username*) printf '%s' "$GITOPS_USER" ;;
+  *)         printf '%s' "$GITOPS_TOKEN" ;;
+esac
+EOF
+                                chmod 700 "$ASKPASS"
+                                export GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0
+
+                                rm -rf target/gitops
+                                git clone --depth 1 --branch main "$GITOPS_URL" target/gitops
+                                cd target/gitops
+
+                                OVERLAY="apps/${GITOPS_APP}/overlays/${GITOPS_ENV}/kustomization.yaml"
+                                [ -f "$OVERLAY" ] || { echo "Overlay introuvable dans le depot GitOps : $OVERLAY"; exit 1; }
+
+                                sed -i -E "s|^([[:space:]]*newTag:).*|\\1 ${IMAGE_TAG}|" "$OVERLAY"
+                                grep -q "newTag: ${IMAGE_TAG}$" "$OVERLAY" || { echo "Mise a jour de newTag impossible dans $OVERLAY"; exit 1; }
+
+                                if git diff --quiet; then
+                                    echo "GitOps deja a jour (${IMAGE_TAG})"
+                                    git rev-parse HEAD > ../gitops-commit.txt
+                                    exit 0
+                                fi
+
+                                git -c user.name="jenkins-ci" -c user.email="jenkins-ci@users.noreply.github.com" \\
+                                    commit -q -am "chore(${GITOPS_APP}): ${GITOPS_ENV} -> ${IMAGE_TAG} [build ${BUILD_NUMBER}]"
+                                git rev-parse HEAD > ../gitops-commit.txt
+
+                                if [ "$DIRECT_COMMIT" = "true" ]; then
+                                    pushed=0
+                                    for attempt in 1 2 3; do
+                                        if git push -q origin HEAD:main; then pushed=1; break; fi
+                                        git pull -q --rebase origin main
+                                    done
+                                    [ "$pushed" = "1" ] || { echo "Push GitOps en echec apres 3 tentatives"; exit 1; }
+                                    echo "GitOps mis a jour : ${GITOPS_APP} ${GITOPS_ENV} -> ${IMAGE_TAG}"
+                                else
+                                    PROMOTE_BRANCH="promote/${GITOPS_APP}-${GITOPS_ENV}-${IMAGE_TAG}"
+                                    git push -q origin "HEAD:refs/heads/${PROMOTE_BRANCH}"
+                                    echo "Branche ${PROMOTE_BRANCH} poussee : ouvrir une Pull Request vers main pour deployer en ${GITOPS_ENV}"
+                                fi
+                            '''
+                        }
+                    }
+
+                    def gitopsCommit = readFile('target/gitops-commit.txt').trim()
+                    def imageVersion = """\
+image=image-registry.openshift-image-registry.svc:5000/${OPENSHIFT_NAMESPACE}/${GITOPS_APP}
+tag=${IMAGE_TAG}
+digest=${IMAGE_DIGEST}
+gitops.environment=${GITOPS_ENV}
+gitops.commit=${gitopsCommit}
+artifact.version=${VERSION}
+artifact.sha256=${ARTIFACT_SHA256}
+jenkins.buildNumber=${env.BUILD_NUMBER}
+"""
+                    writeFile file: 'image-version.properties', text: imageVersion
+                    echo imageVersion
+                }
+                archiveArtifacts artifacts: 'image-version.properties', fingerprint: true
             }
         }
     }
