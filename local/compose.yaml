@@ -20,8 +20,9 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql/data
     healthcheck:
-      # Meme controle que la readinessProbe OpenShift
-      test: ["CMD", "/usr/libexec/check-container"]
+      # Meme controle que la readinessProbe OpenShift. MYSQL_PWD : mot de passe hors de la ligne de commande (ps).
+      # $$ = echappement Compose : la variable est resolue dans le conteneur, pas a l'interpolation.
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysqladmin -u \"$$MYSQL_USER\" -h 127.0.0.1 ping"]
       interval: 10s
       timeout: 5s
       retries: 12
