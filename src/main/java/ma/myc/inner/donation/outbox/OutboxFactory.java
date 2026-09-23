@@ -2,8 +2,8 @@ package ma.myc.inner.donation.outbox;
 
 
 import ma.myc.inner.donation.events.EventEnvelope;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -15,11 +15,11 @@ import java.util.Map;
 public class OutboxFactory {
 
     //TODO to refactor voir s'il y a des outils meilleurs dans kafka
-    private final ObjectMapper objectMapper;
+    private final JsonMapper jsonMapper;
     private final Clock clock;
 
-    public OutboxFactory(ObjectMapper objectMapper, Clock clock) {
-        this.objectMapper = objectMapper;
+    public OutboxFactory(JsonMapper jsonMapper, Clock clock) {
+        this.jsonMapper = jsonMapper;
         this.clock = clock;
     }
     public OutboxEventBO newEvent(String topic, String key, EventEnvelope<?> envelope) {
@@ -61,8 +61,8 @@ public class OutboxFactory {
     }
     private String writeJson(Object o) {
         try {
-            return objectMapper.writeValueAsString(o);
-        } catch (JsonProcessingException e) {
+            return jsonMapper.writeValueAsString(o);
+        } catch (JacksonException e) {
             throw new IllegalStateException("Failed to serialize event to JSON", e);
         }
     }

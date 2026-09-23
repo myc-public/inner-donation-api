@@ -23,7 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import ma.myc.inner.donation.config.TestConfig;
 import ma.myc.inner.donation.domain.dto.VilleAddRequest;
@@ -45,7 +45,7 @@ class VilleApiTest {
 	@MockitoBean
 	private VilleService villeService;
 
-	private static final ObjectMapper om = new ObjectMapper();
+	private static final JsonMapper om = new JsonMapper();
 
 	@BeforeEach
     void initMockServices() throws Exception {

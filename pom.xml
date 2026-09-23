@@ -118,10 +118,10 @@
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- Flyway -->
+		<!-- Flyway (Boot 4: the starter carries the auto-configuration that runs migrations at startup; brings flyway-core) -->
 		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-core</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-flyway</artifactId>
 		</dependency>
 
 		<!-- (Optionnel mais utile) Flyway MySQL support -->
@@ -176,9 +176,10 @@
 			<artifactId>micrometer-registry-prometheus</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+		<!-- Boot 4: tracing auto-configuration (Tracer bean) lives in this module; the Brave bridge it activates on is optional there -->
 		<dependency>
-			<groupId>io.micrometer</groupId>
-			<artifactId>micrometer-tracing</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-micrometer-tracing-brave</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>io.micrometer</groupId>

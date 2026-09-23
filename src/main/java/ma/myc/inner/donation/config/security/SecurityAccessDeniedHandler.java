@@ -15,7 +15,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UrlPathHelper;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,6 +33,7 @@ import ma.myc.inner.donation.util.constants.ErrorConstants;
 public class SecurityAccessDeniedHandler implements AccessDeniedHandler {
 
 	private final TraceRequestHandler traceRequestHandler;
+	private final JsonMapper jsonMapper;
 	private final UrlPathHelper urlPathHelper = new UrlPathHelper();
 
 	@Override
@@ -78,7 +79,7 @@ public class SecurityAccessDeniedHandler implements AccessDeniedHandler {
 				.traceId(traceRequestHandler.getCorrelationId())
 				.instance(urlPathHelper.getPathWithinApplication(request))
 				.build();
-		var jsonRes = new ObjectMapper().writeValueAsString(apiError);
+		var jsonRes = jsonMapper.writeValueAsString(apiError);
 		out.print(jsonRes);
 		out.flush();
 	}
