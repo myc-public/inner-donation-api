@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UrlPathHelper;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,6 +35,7 @@ import ma.myc.inner.donation.util.constants.ErrorConstants;
 public class SecurityAuthEntryPoint implements AuthenticationEntryPoint {
 
 	private final TraceRequestHandler traceRequestHandler;
+	private final JsonMapper jsonMapper;
 	private final UrlPathHelper urlPathHelper = new UrlPathHelper();
 
 	@Override
@@ -86,7 +87,7 @@ public class SecurityAuthEntryPoint implements AuthenticationEntryPoint {
 				.detail(message != null ? message : "Access to this resource is denied")
 				.instance(urlPathHelper.getPathWithinApplication(request))
 				.build();
-		var jsonRes = new ObjectMapper().writeValueAsString(apiError);
+		var jsonRes = jsonMapper.writeValueAsString(apiError);
 		out.write(jsonRes);
 		out.flush();
 	}
