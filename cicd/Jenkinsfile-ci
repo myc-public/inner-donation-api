@@ -157,17 +157,16 @@ pipeline {
             steps {
                 configFileProvider([configFile(fileId: 'nexus-maven-settings', variable: 'MAVEN_SETTINGS')]) {
                     withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
-                        // Job non multibranch : la branche n'est pas detectee automatiquement par le scanner.
-                        // Sans sonar.branch.name, toute analyse (develop compris) serait rangee dans la branche principale.
+                        // Limite connue : SonarCloud (plan gratuit) refuse l'analyse des branches autres que la principale
+                        // (403 "Organization is not allowed to access data from non main branches") => pas de sonar.branch.name.
+                        // Toute analyse (develop compris) est rangee dans la branche principale du projet : le Quality Gate
+                        // reste bloquant a chaque build, mais l'historique Sonar ne distingue pas les branches.
                         withSonarQubeEnv('sonarqube') {
-                            withEnv(["SONAR_BRANCH=${TARGET_BRANCH}"]) {
-                                sh '''
-                                    mvn --settings $MAVEN_SETTINGS org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -batch-mode \
-                                        -Dsonar.organization=myc-public \
-                                        -Dsonar.projectKey=myc-public_inner-donation-api \
-                                        -Dsonar.branch.name="$SONAR_BRANCH"
-                                '''
-                            }
+                            sh '''
+                                mvn --settings $MAVEN_SETTINGS org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -batch-mode \
+                                    -Dsonar.organization=myc-public \
+                                    -Dsonar.projectKey=myc-public_inner-donation-api
+                            '''
                         }
                     }
                 }
