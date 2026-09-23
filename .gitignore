@@ -32,6 +32,9 @@ build/
 ### VS Code ###
 .vscode/
 
+### Environnement local (secrets) ###
+local/.env
+
 audit-donation-api.html
 README.md
 CLAUDE.md
