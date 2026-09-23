@@ -53,12 +53,14 @@ spring:
       preprod: preprod
       prod: prod
   config:
-    import: optional:file:../.env[.properties]
+    # Dev local : memes variables que local/compose.yaml (repertoire de travail = racine du module)
+    import: optional:file:local/.env[.properties]
    ## BDD ##
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:donation_api}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-    username: ${DB_USER:donation_user}
-    password: ${DB_PASSWORD:donation_pass}
+    # Pas de valeur par defaut : fournis par local/.env (dev) ou donation-api-db-secret (OpenShift)
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       pool-name: mycDonationHikari

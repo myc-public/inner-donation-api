@@ -1,0 +1,50 @@
+# Environnement de DEV LOCAL uniquement : jamais deploye.
+# Source de verite du deploiement = gitops-platform (Argo CD). Memes conventions ici pour la parite dev/prod :
+# meme image MySQL (sclorg, variante CentOS Stream de rhel9/mysql-80), meme nom d'hote, memes variables DB_*.
+#   Base seule (API lancee depuis l'IDE) : docker compose -f local/compose.yaml up -d
+#   Base + API (jar construit par mvn package) : docker compose -f local/compose.yaml --profile app up -d --build
+name: donation-api-local
+
+services:
+  donation-api-mysql:
+    # Epinglee par digest (tag c9s) : meme image a chaque poste, mise a jour explicite
+    image: quay.io/sclorg/mysql-80-c9s@sha256:8695f784d85bd6d74ecf55473ac3052e8ce4b8ee3e5f62b97c6486b3975626f7
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:?DB_NAME absent - copier local/.env.example en local/.env}
+      MYSQL_USER: ${DB_USER:?DB_USER absent - copier local/.env.example en local/.env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD absent - copier local/.env.example en local/.env}
+      # Pas de MYSQL_ROOT_PASSWORD : root limite au socket local, comme sur OpenShift
+    ports:
+      # Expose uniquement sur la machine locale (pas sur le reseau)
+      - "127.0.0.1:${DB_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql/data
+    healthcheck:
+      # Meme controle que la readinessProbe OpenShift
+      test: ["CMD", "/usr/libexec/check-container"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  donation-api:
+    # Optionnel (profil "app") : l'API conteneurisee avec le MEME Dockerfile que la CI
+    profiles: [app]
+    build:
+      context: ..
+      dockerfile: cicd/openshift/Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    env_file: .env
+    environment:
+      # Dans le reseau compose : nom de service + port interne (identique a OpenShift)
+      DB_HOST: donation-api-mysql
+      DB_PORT: "3306"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      donation-api-mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
