@@ -161,22 +161,19 @@ pipeline {
                         // (403 "Organization is not allowed to access data from non main branches") => pas de sonar.branch.name.
                         // Toute analyse (develop compris) est rangee dans la branche principale du projet : le Quality Gate
                         // reste bloquant a chaque build, mais l'historique Sonar ne distingue pas les branches.
+                        // Quality Gate verifie par le scanner lui-meme (polling synchrone, echec du build si KO).
+                        // TODO: plan SonarCloud Enterprise -> webhook vers <jenkins>/sonarqube-webhook/ (+ webhookSecretId
+                        //       en JCasC/Terraform), puis revenir a un stage 'Sonar Quality Gate' avec waitForQualityGate.
                         withSonarQubeEnv('sonarqube') {
                             sh '''
                                 mvn --settings $MAVEN_SETTINGS org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -batch-mode \
                                     -Dsonar.organization=myc-public \
-                                    -Dsonar.projectKey=myc-public_inner-donation-api
+                                    -Dsonar.projectKey=myc-public_inner-donation-api \
+                                    -Dsonar.qualitygate.wait=true \
+                                    -Dsonar.qualitygate.timeout=300
                             '''
                         }
                     }
-                }
-            }
-        }
-
-        stage('Sonar Quality Gate') {
-            steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
                 }
             }
         }

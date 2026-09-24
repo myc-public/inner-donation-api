@@ -33,7 +33,8 @@
 		<jacoco.version>0.8.15</jacoco.version>
 		<mockito-inline.version>5.2.0</mockito-inline.version>
 		<org.mapstruct.version>1.4.2.Final</org.mapstruct.version>
-		<springdoc.version>2.3.0</springdoc.version>
+		<!-- Ligne 3.0.x = Spring Boot 4.0 (2.x -> NoSuchMethodError ControllerAdviceBean, /docs/api-docs en 500) -->
+		<springdoc.version>3.0.3</springdoc.version>
 
 		<!-- End Default props -->
 		
@@ -230,6 +231,15 @@
 						</exclude>
 					</excludes>
 				</configuration>
+				<executions>
+					<!-- META-INF/build-info.properties -> /management/info "build" (nom, version) : pas de filtrage @...@ (craft-parent n'herite pas de spring-boot-starter-parent) -->
+					<execution>
+						<id>build-info</id>
+						<goals>
+							<goal>build-info</goal>
+						</goals>
+					</execution>
+				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>

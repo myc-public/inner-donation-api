@@ -43,7 +43,8 @@ springdoc:
 ### SPRING ###
 spring:
   application:
-    name: "@project.name@"
+    # En dur : pas de filtrage Maven @...@ (craft-parent n'herite pas de spring-boot-starter-parent)
+    name: inner-donation-api
   profiles:
     default: local
     group:
@@ -110,18 +111,18 @@ logging:
 info:
   application:
     name: ${spring.application.name}
-    version: "@project.version@"
-    description: "@project.description@"
+# version / description : fournies par build-info (spring-boot-maven-plugin) -> /management/info "build"
     
 ### API MANAGEMENT ###
 management:
   security:
     users:
-      - username: ${MANAGEMENT_ADMIN_USER:admin}
-        password: ${MANAGEMENT_ADMIN_PWD:admin}
+      # Pas de valeur par defaut : fournis par local/.env (dev) ou donation-api-management-secret (OpenShift)
+      - username: ${MANAGEMENT_ADMIN_USER}
+        password: ${MANAGEMENT_ADMIN_PWD}
         role: ADMIN
-      - username: ${MANAGEMENT_VIEWER_USER:viewer}
-        password: ${MANAGEMENT_VIEWER_PWD:viewer}
+      - username: ${MANAGEMENT_VIEWER_USER}
+        password: ${MANAGEMENT_VIEWER_PWD}
         role: VIEWER
   endpoint:
     prometheus:
@@ -130,7 +131,8 @@ management:
       enabled: true
     health:
       enabled: true
-      show-details: always
+      # Details (DB, disque) reserves aux utilisateurs authentifies : /management/health est public (sondes, Route)
+      show-details: when-authorized
   info:
     env:
       enabled: true
@@ -166,5 +168,6 @@ spring:
     restart.enabled: false
     
 myc:
-  context: "/api/donation/"
+  # Prefixe nginx par defaut ; MYC_CONTEXT=/ quand l'API est exposee directement (Route OpenShift en dev)
+  context: ${MYC_CONTEXT:/api/donation/}
    

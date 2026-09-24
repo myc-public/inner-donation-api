@@ -5,7 +5,6 @@ import static org.springframework.security.config.Customizer.withDefaults;
 import java.util.ArrayList;
 import java.util.Collection;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -35,15 +34,18 @@ public class SecurityManagementConfig {
 	private final SecurityAccessDeniedHandler securityAccessDeniedHandler;
 	private final ManagementUsersProps managementUsersProps;
 
+	// Toujours active, independamment de myc.security.enabled (securite metier) : les endpoints de
+	// management (loggers, metrics...) ne doivent jamais etre publics.
 	@Order(ORDER)
 	@Bean
-	@ConditionalOnProperty(prefix = "myc.security", name = "enabled", havingValue = "true", matchIfMissing = true)
 	SecurityFilterChain managementSecurityFilterChain(HttpSecurity http) throws Exception {
 		http
 				.sessionManagement(m -> m.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.securityMatcher("/management/**")
 				.authorizeHttpRequests(authRequests -> authRequests
-						.requestMatchers("/management/health").hasAnyRole("VIEWER", "ADMIN")
+						// Sondes Kubernetes et statut global : publics (details reserves aux authentifies, cf. show-details)
+						.requestMatchers("/management/health", "/management/health/**", "/management/info").permitAll()
+						.requestMatchers("/management/prometheus", "/management/metrics/**").hasAnyRole("VIEWER", "ADMIN")
 						.requestMatchers("/management/**").hasAnyRole("ADMIN"))
 				.httpBasic(Customizer.withDefaults());
 		http
