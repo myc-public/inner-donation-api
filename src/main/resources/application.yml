@@ -100,11 +100,16 @@ app:
 logging:
   level:
     root: INFO
-    ma.myc.*: INFO
-    org.springframework.*: INFO
+    # Noms de logger = packages (pas de joker : "ma.myc.*" n'etait jamais applique)
+    ma.myc: INFO
     org.springframework.security: INFO
-  pattern:
-    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+  # Pas de logging.pattern.level : Boot ajoute deja [traceId-spanId] (correlation native) -> plus de doublon
+  structured:
+    ecs:
+      service:
+        environment: ${SPRING_PROFILES_ACTIVE:local}
+        # HOSTNAME = nom du pod sur Kubernetes : distingue les replicas dans Loki
+        node-name: ${HOSTNAME:}
     
 
 ### INFO ENV ###
@@ -170,4 +175,10 @@ spring:
 myc:
   # Prefixe nginx par defaut ; MYC_CONTEXT=/ quand l'API est exposee directement (Route OpenShift en dev)
   context: ${MYC_CONTEXT:/api/donation/}
+
+logging:
+  structured:
+    format:
+      # Logs as Event Streams : un evenement JSON (ECS) par ligne sur stdout, route par la plateforme (Loki)
+      console: ecs
    

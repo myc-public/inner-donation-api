@@ -35,10 +35,10 @@ public class DonorServiceImpl implements DonorService {
 
     @Override
     public DonorResponse create(CreateDonorRequest request) {
-        log.info("Creating donor with email={}", request.email());
+        log.info("Creating donor");
 
         if (donorRepository.existsByEmail(request.email())) {
-            log.warn("Donor already exists with email={}", request.email());
+            log.warn("Donor already exists (email already registered)");
             throw new DonorAlreadyExistsException(
                     "Donor already exists with email: " + request.email()
             );
@@ -52,13 +52,13 @@ public class DonorServiceImpl implements DonorService {
 
     @Override
     public DonorResponse get(UUID donorId) {
-        log.info("Fetching donor donorId={}", donorId);
+        log.debug("Fetching donor donorId={}", donorId);
         return donorMapper.toResponse(findDonor(donorId));
     }
 
     @Override
     public Page<DonorResponse> list(Pageable pageable) {
-        log.info("Listing donors page={} size={}", pageable.getPageNumber(), pageable.getPageSize());
+        log.debug("Listing donors page={} size={}", pageable.getPageNumber(), pageable.getPageSize());
         return donorRepository.findAll(pageable).map(donorMapper::toResponse);
     }
 

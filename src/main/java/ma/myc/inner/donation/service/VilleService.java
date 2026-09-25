@@ -22,7 +22,7 @@ public class VilleService {
     private final VilleMapper villeMapper;
 
     public List<VilleResponse> getAllVilleByPaysCode(String paysCode) {
-        log.info("Récuération de la liste des villes pour le code pays {}", paysCode);
+        log.debug("Récuération de la liste des villes pour le code pays {}", paysCode);
         return villeMapper.mapToVilleResponse(
                 villeRepository.findAllByPaysCode(paysCode));
     }
