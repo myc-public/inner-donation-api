@@ -60,8 +60,8 @@ public class DonationServiceImpl implements DonationService {
     @Override
     public DonationResponse create(CreateDonationRequest request) {
 
-        log.info("Create donation donorId={} amount={} category={}",
-                request.donor().donorId(), request.amount(), request.category());
+        log.info("Create donation donorId={} category={}",
+                request.donor().donorId(), request.category());
 
         DonationBO donation = donationMapper.toBo(request);
         DonationBO saved = donationRepository.save(donation);
@@ -86,19 +86,19 @@ public class DonationServiceImpl implements DonationService {
 
     @Override
     public DonationResponse get(UUID donationId) {
-        log.info("Fetching donation donationId={}", donationId);
+        log.debug("Fetching donation donationId={}", donationId);
         return donationMapper.toResponse(findDonation(donationId));
     }
 
     @Override
     public List<DonationResponse> list() {
-        log.info("Listing donations");
+        log.debug("Listing donations");
         return donationRepository.findAll().stream().map(donationMapper::toResponse).toList();
     }
 
     @Override
     public List<DonationResponse> listByDonor(UUID donorId) {
-        log.info("Listing donations by donorId={}", donorId);
+        log.debug("Listing donations by donorId={}", donorId);
         return donationRepository.findByDonorId(donorId).stream().map(donationMapper::toResponse).toList();
     }
 
