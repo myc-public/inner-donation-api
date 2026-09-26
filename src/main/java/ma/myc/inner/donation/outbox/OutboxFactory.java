@@ -1,6 +1,9 @@
 package ma.myc.inner.donation.outbox;
 
 
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import ma.myc.inner.donation.events.EventEnvelope;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
@@ -17,10 +20,14 @@ public class OutboxFactory {
     //TODO to refactor voir s'il y a des outils meilleurs dans kafka
     private final JsonMapper jsonMapper;
     private final Clock clock;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
-    public OutboxFactory(JsonMapper jsonMapper, Clock clock) {
+    public OutboxFactory(JsonMapper jsonMapper, Clock clock, Tracer tracer, Propagator propagator) {
         this.jsonMapper = jsonMapper;
         this.clock = clock;
+        this.tracer = tracer;
+        this.propagator = propagator;
     }
     public OutboxEventBO newEvent(String topic, String key, EventEnvelope<?> envelope) {
         Instant now = Instant.now(clock);
@@ -37,6 +44,13 @@ public class OutboxFactory {
 
         // optionnels -> uniquement si non null / non blank
         putIfNotNull(headers, "producer", envelope.producer());
+
+        // Contexte de trace W3C (traceparent, tracestate) : le relais Kafka le recopiera dans les headers du
+        // message, la trace continuera cote consommateur (propagation asynchrone)
+        TraceContext traceContext = tracer.currentTraceContext().context();
+        if (traceContext != null) {
+            propagator.inject(traceContext, headers, Map::put);
+        }
 
         String headersJson = writeJson(headers);
 

@@ -1,5 +1,9 @@
 package ma.myc.inner.donation.outbox;
 
+import io.micrometer.tracing.CurrentTraceContext;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import ma.myc.inner.donation.events.EventEnvelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,10 +15,16 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class OutboxFactoryTest {
 
@@ -23,6 +33,7 @@ class OutboxFactoryTest {
     private static final UUID EVENT_ID = UUID.randomUUID();
     private static final String TOPIC = "donation-event";
     private static final String KEY = "donation-42";
+    private static final String TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
     // Vrai mapper Jackson 3 (pas de mock) : on verifie la serialisation reelle de l'outbox
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
@@ -30,7 +41,38 @@ class OutboxFactoryTest {
 
     @BeforeEach
     void setUp() {
-        outboxFactory = new OutboxFactory(jsonMapper, Clock.fixed(NOW, ZoneOffset.UTC));
+        // Pas de trace active : Tracer / Propagator NOOP (aucun header de trace)
+        outboxFactory = new OutboxFactory(jsonMapper, Clock.fixed(NOW, ZoneOffset.UTC), Tracer.NOOP, Propagator.NOOP);
+    }
+
+    @Test
+    @DisplayName("newEvent : le contexte de trace courant est propage en header traceparent (W3C)")
+    @SuppressWarnings("unchecked")
+    void newEvent_injectsTraceparentWhenTraceIsActive() {
+        Tracer tracer = mock(Tracer.class);
+        CurrentTraceContext currentTraceContext = mock(CurrentTraceContext.class);
+        TraceContext traceContext = mock(TraceContext.class);
+        Propagator propagator = mock(Propagator.class);
+        when(tracer.currentTraceContext()).thenReturn(currentTraceContext);
+        when(currentTraceContext.context()).thenReturn(traceContext);
+        doAnswer(invocation -> {
+            Propagator.Setter<Map<String, String>> setter = invocation.getArgument(2);
+            setter.set(invocation.getArgument(1), "traceparent", TRACEPARENT);
+            return null;
+        }).when(propagator).inject(eq(traceContext), any(Map.class), any(Propagator.Setter.class));
+        var factory = new OutboxFactory(jsonMapper, Clock.fixed(NOW, ZoneOffset.UTC), tracer, propagator);
+
+        OutboxEventBO event = factory.newEvent(TOPIC, KEY, envelope("donation-service", new Payload("donation-42", 150)));
+
+        assertThat(jsonMapper.readTree(event.getHeaders()).get("traceparent").asString()).isEqualTo(TRACEPARENT);
+    }
+
+    @Test
+    @DisplayName("newEvent : sans trace active, aucun header traceparent")
+    void newEvent_omitsTraceparentWithoutActiveTrace() {
+        OutboxEventBO event = outboxFactory.newEvent(TOPIC, KEY, envelope("donation-service", new Payload("donation-42", 150)));
+
+        assertThat(jsonMapper.readTree(event.getHeaders()).has("traceparent")).isFalse();
     }
 
     @Test

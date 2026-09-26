@@ -37,6 +37,7 @@
 		<springdoc.version>3.0.3</springdoc.version>
 		<!-- 2.21.0-alpha = opentelemetry-api 1.55.0, version geree par Spring Boot 4.0.0 -->
 		<otel-logback-appender.version>2.21.0-alpha</otel-logback-appender.version>
+		<datasource-micrometer.version>2.0.1</datasource-micrometer.version>
 
 		<!-- End Default props -->
 		
@@ -184,6 +185,12 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-opentelemetry</artifactId>
+		</dependency>
+		<!-- Spans SQL (une requete = un span, sans valeurs de parametres). 2.0.x = Spring Boot 4.0 (2.3.x = Boot 4.1) -->
+		<dependency>
+			<groupId>net.ttddyy.observation</groupId>
+			<artifactId>datasource-micrometer-spring-boot</artifactId>
+			<version>${datasource-micrometer.version}</version>
 		</dependency>
 		<!-- Logs -> OTLP (Loki) : Boot n'installe pas l'appender (cf. OpenTelemetryLogbackConfig).
 		     Version non geree par Boot : alignee sur OpenTelemetry 1.55.0 (celle de Boot 4.0.0). -->
