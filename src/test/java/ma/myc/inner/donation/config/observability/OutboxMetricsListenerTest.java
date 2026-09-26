@@ -44,7 +44,9 @@ class OutboxMetricsListenerTest {
 	void donationCreated_usesOnlyLowCardinalityTags() {
 		listener.onOutboxEventSaved(donationCreated("FOOD", "FR", BigDecimal.TEN));
 
-		registry.getMeters().forEach(meter -> assertThat(meter.getId().getTags())
+		// isNotEmpty : le test echoue si aucune metrique n'a ete creee (sinon allSatisfy passerait a vide)
+		assertThat(registry.getMeters()).isNotEmpty().allSatisfy(meter -> assertThat(meter.getId().getTags())
+				.isNotEmpty()
 				.allSatisfy(tag -> assertThat(tag.getKey()).isIn("event_type", "aggregate_type", "category", "country")));
 	}
 

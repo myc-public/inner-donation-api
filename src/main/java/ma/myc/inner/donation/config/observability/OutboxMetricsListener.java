@@ -29,6 +29,7 @@ public class OutboxMetricsListener {
 	private static final Logger log = LoggerFactory.getLogger(OutboxMetricsListener.class);
 	private static final String DONATION_CREATED = "DonationCreated";
 	private static final String UNKNOWN = "unknown";
+	private static final String TAG_CATEGORY = "category";
 
 	private final MeterRegistry registry;
 	private final JsonMapper jsonMapper;
@@ -57,10 +58,10 @@ public class OutboxMetricsListener {
 	}
 
 	private void recordDonationCreated(JsonNode payload) {
-		String category = text(payload, "category");
+		String category = text(payload, TAG_CATEGORY);
 		Counter.builder("donations.created")
 				.description("Dons crees")
-				.tag("category", category)
+				.tag(TAG_CATEGORY, category)
 				.tag("country", text(payload, "country"))
 				.register(registry)
 				.increment();
@@ -68,7 +69,7 @@ public class OutboxMetricsListener {
 		if (amount != null && amount.isNumber()) {
 			DistributionSummary.builder("donations.amount")
 					.description("Montant des dons (agrege)")
-					.tag("category", category)
+					.tag(TAG_CATEGORY, category)
 					.register(registry)
 					.record(amount.doubleValue());
 		}
