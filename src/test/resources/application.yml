@@ -14,3 +14,18 @@ app:
     max-backoff: 1s
 myc:
   context: test
+
+# Aucun export OTLP pendant les tests (le bean Tracer reste disponible pour TraceRequestHandler)
+management:
+  tracing:
+    export:
+      otlp:
+        enabled: false
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
