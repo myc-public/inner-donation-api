@@ -87,6 +87,14 @@ spring:
           jwk-set-uri: ${AUTH_ADFS_URL_KEYS:https://srv-dcdev.myc-dev.local/adfs/discovery/keys}
 
 
+### SPANS SQL (datasource-micrometer) ###
+jdbc:
+  # Un span par requete SQL (sans le bruit connexion / fetch)
+  includes: QUERY
+  datasource-proxy:
+    # Jamais les valeurs des parametres dans les traces (email, montant...) : seulement le SQL
+    include-parameter-values: false
+
 app:
   outbox:
     poll-interval-ms: ${OUTBOX_POLL_INTERVAL:2000}

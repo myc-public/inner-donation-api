@@ -1,8 +1,11 @@
 package ma.myc.inner.donation.outbox;
 
 import jakarta.persistence.*;
+import org.springframework.data.domain.DomainEvents;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -106,6 +109,15 @@ public class OutboxEventBO {
 
     public Instant getOccurredAt() {
         return occurredAt;
+    }
+
+    /**
+     * Publie par Spring Data a chaque {@code save} : consomme apres commit (metriques metier derivees des
+     * evenements du domaine, cf. OutboxMetricsListener). Aucun couplage des services a la telemetrie.
+     */
+    @DomainEvents
+    public Collection<Object> domainEvents() {
+        return List.of(new OutboxEventSaved(eventType, aggregateType, payload));
     }
 
 
