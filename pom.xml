@@ -35,6 +35,8 @@
 		<org.mapstruct.version>1.4.2.Final</org.mapstruct.version>
 		<!-- Ligne 3.0.x = Spring Boot 4.0 (2.x -> NoSuchMethodError ControllerAdviceBean, /docs/api-docs en 500) -->
 		<springdoc.version>3.0.3</springdoc.version>
+		<!-- 2.21.0-alpha = opentelemetry-api 1.55.0, version geree par Spring Boot 4.0.0 -->
+		<otel-logback-appender.version>2.21.0-alpha</otel-logback-appender.version>
 
 		<!-- End Default props -->
 		
@@ -177,14 +179,18 @@
 			<artifactId>micrometer-registry-prometheus</artifactId>
 			<scope>runtime</scope>
 		</dependency>
-		<!-- Boot 4: tracing auto-configuration (Tracer bean) lives in this module; the Brave bridge it activates on is optional there -->
+		<!-- OpenTelemetry (Boot 4) : bridge Micrometer Tracing -> OTel (bean Tracer), export OTLP des traces,
+		     registry OTLP des metriques. Active par OTLP_EXPORT_ENABLED (application.yml). -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-micrometer-tracing-brave</artifactId>
+			<artifactId>spring-boot-starter-opentelemetry</artifactId>
 		</dependency>
+		<!-- Logs -> OTLP (Loki) : Boot n'installe pas l'appender (cf. OpenTelemetryLogbackConfig).
+		     Version non geree par Boot : alignee sur OpenTelemetry 1.55.0 (celle de Boot 4.0.0). -->
 		<dependency>
-			<groupId>io.micrometer</groupId>
-			<artifactId>micrometer-tracing-bridge-brave</artifactId>
+			<groupId>io.opentelemetry.instrumentation</groupId>
+			<artifactId>opentelemetry-logback-appender-1.0</artifactId>
+			<version>${otel-logback-appender.version}</version>
 		</dependency>
 		
 		<!-- Apache Commons -->
