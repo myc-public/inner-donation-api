@@ -36,13 +36,13 @@
     "expectedStatus": "400"
   },
   {
-    "case": "Content-Type non supporte",
+    "case": "Content-Type non supporte (bloque par le WAF, regle CRS 920420)",
     "request": "POST donor",
     "path": "",
     "body": "lastName=Texte",
     "contentType": "text/plain",
     "accept": "application/json",
-    "expectedStatus": "415"
+    "expectedStatus": "403"
   },
   {
     "case": "Doublon email - 1er passage (cree)",

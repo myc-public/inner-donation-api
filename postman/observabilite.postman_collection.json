@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "donation-api - observabilite",
-    "description": "Scenarios S1 (nominal) et S2 (erreurs 4xx) du plan de test observabilite (jenkins-on-openshift-with-terraform/docs/OBSERVABILITY-TEST.md). Passe par la Route publique (APISIX externe + WAF -> APISIX interne -> API) : un token est requis. Environnement e2e-sandbox (baseUrl, keycloakUrl, donationTestsClientSecret ; secret via Copy-KcSecret, inner-donation-api/postman/PLAN-DE-TEST-E2E.md). Collection Runner : un dossier a la fois, avec le data file indique dans son nom.",
+    "description": "Scenarios S1 (nominal) et S2 (erreurs 4xx) du plan de test observabilite (jenkins-on-openshift-with-terraform/docs/OBSERVABILITY-TEST.md). Passe par la Route publique (APISIX externe + WAF -> APISIX interne -> API) : un token est requis. Environnement e2e-sandbox (baseUrl, keycloakUrl, donationTestsClientSecret ; secret via Copy-KcSecret, inner-donation-api/postman/PLAN-DE-TEST-E2E.md). Un dossier a la fois, avec le data file indique dans son nom. Postman gratuit : le Runner n'accepte pas les data files, lancer avec Newman (commandes dans OBSERVABILITY-TEST.md, section 1 bis).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
