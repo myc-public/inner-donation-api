@@ -361,29 +361,61 @@ $actifs = ocs get useroauthaccesstokens -o jsonpath='{.items[*].metadata.name}'
 
 ### 5.9 Front + BFF (K6)
 
-Valides par le spike du 12/10 (serveur Node jetable, Keycloak local, Redis `noeviction`). A rejouer sur
-l'application `donation-web` des qu'elle existe, puis a automatiser (Vitest, Playwright : decision D6-14). Les
-commandes Redis passent par `REDISCLI_AUTH` (mot de passe jamais affiche) ; les identifiants de session sont masques.
+BFF Spring `web-bff` (instance `web-bff-customers`, realm `myc-customers`) et front React `donation-web`. Tests ecrits
+a partir du spike Spring (section 5.10, points de vigilance compris) ; le spike Node du 12/10 n'a garde de valeur que
+pour le realm, Keycloak et Redis. Automatises par Playwright (`donation-web`, `npm run test:e2e`, dev :
+`http://localhost:5173`, pile : `E2E_BASE_URL=https://localhost:8443`) : SEC-BFF-02, -09 (en partie) et -13 (en
+partie) ; les autres sont manuels. Commandes Redis par `REDISCLI_AUTH` (mot de passe jamais affiche), identifiants de
+session masques, jamais de token affiche.
 
-| ID | Fonction testee | Commande / procedure | Attendu | Modes | Origine |
+| ID | Fonction testee | Commande / procedure | Attendu | Modes | Resultat |
 |---|---|---|---|---|---|
-| SEC-BFF-01 | Decouverte OIDC par l'URL interne avec un `iss` public | logs du BFF au demarrage | decouverte sur l'emetteur public avec reecriture interne : `authorization` et `end_session` publics, `token` et `jwks` internes ; sans parade : refus (emetteur different) | dev, pile | spike K6a SP1, 12/10 |
-| SEC-BFF-02 | Connexion code + PKCE, cookies `__Host-` | navigateur : Connexion ; F12 > Application > Cookies | `__Host-session` HttpOnly, Secure, SameSite=Lax ; `__Host-auth` supprime apres le callback ; aucun token dans le navigateur | dev, pile | SP2, 12/10 |
-| SEC-BFF-03 | Session serveur dans Redis | `redis-cli --scan` | `sess:<id>` (TTL glissant 30 min) et index `sid:<sid>` (TTL 10 h) | dev, pile | SP2, 12/10 |
-| SEC-BFF-04 | Callback rejoue ; cookie de pre-authentification absent | rejouer l'URL du callback (onglet Reseau) ; supprimer `__Host-auth` avant de valider le login | 400, aucune session creee | dev, pile | SP2b, 12/10 |
-| SEC-BFF-05 | Pas de session orpheline a la reconnexion | se reconnecter deux fois dans le meme navigateur ; compter `sess:*` | l'ancienne session est detruite (nombre inchange) | dev, pile | SP2b, 12/10 (defaut corrige) |
-| SEC-BFF-06 | Token limite a l'API, claims du contrat | claims affiches par le BFF (jamais le token) | `aud` = `donation-api`, `donation:read donation:write`, `party_id`, permissions `*:own` | dev, pile | SP3, 12/10 |
-| SEC-BFF-07 | Refresh concurrent avec verrou | 5 requetes simultanees avec un access token expire | un seul appel au token endpoint, meme access token pour les 5 | dev, pile | SP4, 12/10 |
-| SEC-BFF-08 | Rejeu d'un refresh token consomme | rejouer l'ancien refresh token | `invalid_grant` ; chaine de refresh coupee ; session BFF detruite ; reconnexion sans mot de passe (SSO conserve) | dev, pile | SP4, 12/10 |
-| SEC-BFF-09 | Deconnexion RP-Initiated | Deconnexion, puis Connexion | session Redis et index supprimes, cookie efface, retour sur `/` ; la connexion suivante redemande le mot de passe | dev, pile | SP5, 12/10 |
-| SEC-BFF-10 | Back-channel logout cible | deux sessions (fenetre normale, fenetre privee) ; deconnecter l'autre appareil depuis la console de compte | seule la session visee est supprimee (orphelines du meme `sid` comprises) ; l'URL de back-channel est interne | dev, pile | SP6, 12/10 |
-| SEC-BFF-11 | Rejeu d'un `logout_token` | renvoyer le meme `logout_token` en moins de 2 min | 400 « rejeu (jti deja vu) » | dev, pile | SP6, 12/10 |
-| SEC-BFF-12 | Redis sature (`noeviction`) | remplir Redis jusqu'a `maxmemory`, puis se connecter | aucune session existante evincee ; nouvelle connexion 503 sans session partielle ; un nouvel essai reussit apres liberation | dev, pile | SP7, 12/10 |
+| SEC-BFF-01 | Configuration OIDC explicite (SB1) | demarrer le BFF Keycloak arrete ; presenter un `id_token` d'un autre emetteur ou mal signe | demarrage sans Keycloak (pas de decouverte) ; `iss`, signature, `aud` et expiration verifies : refus | dev, pile | spike 13/10 ; pile a faire |
+| SEC-BFF-02 | Connexion code + PKCE, aucun token dans le navigateur | Playwright (`parcours.spec.ts`) ; `Location` de `/bff/oauth2/authorization/keycloak` | `code_challenge_method=S256` ; cookie `__Host-SESSION` HttpOnly, Secure, SameSite=Lax, Path=/ ; aucun token dans les cookies du front et du BFF, le stockage ni les reponses `/bff/api/*` | dev, pile | dev et pile 15/10 |
+| SEC-BFF-03 | Sessions Redis isolees par instance | `redis-cli --user web-bff-customers --scan` ; `GET` d'une cle hors prefixe ; connexion avec `default` | cles `web-bff-customers:session:*` seulement ; `NOPERM` hors prefixe ; compte `default` desactive | dev, pile | dev 15/10 ; pile a faire |
+| SEC-BFF-04 | Callback rejoue, `state` absent ou faux | rejouer l'URL du callback (onglet Reseau) ; modifier `state` | retour sur `/?connexion=echec`, aucune session authentifiee creee | dev, pile | a faire |
+| SEC-BFF-05 | Fixation de session (SB3) | noter l'identifiant de session anonyme (Redis), se connecter | l'identifiant change a la connexion ; l'ancienne cle n'existe plus | dev, pile | a faire |
+| SEC-BFF-06 | Token limite a l'API | claims lus cote BFF (jamais le token) ; appel du BFF a l'API par APISIX interne | `aud` = `donation-api`, `donation:read donation:write` ; APISIX interne verifie JWT et scope (sinon 401 / 403) | pile | parcours pile 15/10 (indirect) ; controle direct a faire |
+| SEC-BFF-07 | Refresh concurrent avec verrou (SB3, SB4) | 5 requetes simultanees avec un access token expire ; verrou expire (TTL 5 s) ; **2 instances** du BFF sur le meme Redis | un seul appel au token endpoint ; meme token pour toutes les requetes ; aucune deconnexion involontaire ; session partagee entre instances | pile | spike 13/10 (une instance) ; multi-instance a faire |
+| SEC-BFF-08 | Refresh token revoque ou rejoue | revoquer la session dans Keycloak puis attendre l'expiration de l'access token | session BFF invalidee ; `/bff/api/*` -> 401 ; front anonyme | dev, pile | a faire |
+| SEC-BFF-09 | Deconnexion RP-Initiated | Playwright (Se deconnecter : `POST /bff/logout` avec `_csrf`) ; puis Se connecter | session Redis supprimee, retour sur `/` anonyme ; la connexion suivante redemande le mot de passe | dev, pile | dev et pile 15/10 (sauf nouvelle demande du mot de passe) |
+| SEC-BFF-10 | Back-channel logout cible (SB5, SB8) | deux sessions (fenetre normale, fenetre privee) ; deconnecter une seule depuis la console de compte | seule la session visee est supprimee ; URL de back-channel interne (`http://web-bff-customers:8080`) | pile | une session : pile 15/10 ; ciblage a faire |
+| SEC-BFF-11 | Rejeu d'un `logout_token` (SB5) | renvoyer le meme `logout_token` | **200 idempotent** (decision du 15/10) : aucun effet supplementaire, aucune information revelee | dev, pile | a faire |
+| SEC-BFF-12 | Redis sature (`noeviction`) | remplir Redis jusqu'a `maxmemory`, puis se connecter | aucune session existante evincee ; nouvelle connexion 503 sans session partielle ; un nouvel essai reussit apres liberation | dev, pile | a faire |
+| SEC-BFF-13 | CSRF (SB7) | mutation sans jeton (Playwright) ; jeton faux ; `Origin` absente ou etrangere ; sur POST, PUT, PATCH, DELETE | 403 a chaque cas ; requete conforme acceptee | dev, pile | sans jeton : dev et pile 15/10 ; reste a faire |
+| SEC-BFF-14 | Expiration de la session | `SESSION_IDLE_TIMEOUT` et `SESSION_ABSOLUTE_TIMEOUT` courts (ex. 2 min et 5 min) | inactivite : session expiree ; absolue : session invalidee meme active ; front anonyme | dev, pile | tests unitaires ; a faire |
+| SEC-BFF-15 | Erreurs de l'API sans fuite | sans session ; API arretee ; API en erreur 5xx | 401 ; 503 ; 502 ; aucun detail interne (trace, URL, nom d'hote) dans la reponse | dev, pile | tests unitaires ; a faire |
+| SEC-BFF-16 | APISIX externe : liste fermee | `curl.exe -k` sur `/`, `/profil`, `/bff/api/session`, `/healthz`, `/bff/management/health/readiness`, `POST /bff/logout/connect/back-channel/keycloak`, `/inconnu` | 200, 200, 200, puis 404 pour les quatre derniers | pile | pile 15/10 |
+| SEC-BFF-17 | Isolation de la pile | `Test-NetConnection` sur 8080, 8090, 5173, 8180, 3307, 8025, 6379 | tous fermes ; seul 8443 repond | pile | pile 15/10 |
+| SEC-BFF-18 | Origine publique vue par le BFF | `redirect_uri` de la redirection vers Keycloak | `https://localhost:8443/bff/login/oauth2/code/keycloak` (port public, pas 9443) | pile | pile 15/10 |
+| SEC-WEB-01 | CSP bloquante | en-tetes de `/` ; console du navigateur pendant le parcours | `Content-Security-Policy` (sans `'unsafe-inline'`), `Cache-Control: no-store` ; aucun refus CSP ; build refuse si script ou style en ligne (`check-dist.mjs`) | pile | pile 15/10 |
+| SEC-WEB-02 | Front sans stockage ni HTML injecte, nginx minimal | `npm run lint` ; image : methode autre que GET/HEAD, `/bff/*` | stockage navigateur, `innerHTML`, `eval` refuses par ESLint ; 405 ; 404 | dev, image | 15/10 |
 
-A ajouter pendant K6 (decisions D6-5 a D6-14) : CSRF (`Origin` absente ou etrangere, mauvais `Content-Type` -> 403),
-route ou methode BFF non listee -> 404, API interne indisponible -> 503, liste blanche APISIX des routes Next.js,
-back-channel et sondes non routes publiquement, `/api/v1` seulement sur l'hote machine, CSP avec nonce, expiration
-absolue de la session.
+### 5.10 Capitalisation des spikes BFF Spring (SB1-SB8, 13/10)
+
+Spike du BFF Spring Boot 4 / Spring Security 7 (`web-bff-customers`, Keycloak local, Redis avec ACL), tous les points
+conformes. Resultats detailles et precisions DB3 a DB9 : ADR du 13/10 de `jenkins-on-openshift-with-terraform/docs/ROADMAP.md`.
+Les tests SEC-BFF de la section 5.9 seront reecrits pour Spring a partir de ce tableau, et les points de vigilance
+deviendront des tests SEC-BFF avant la recette securite complete.
+
+| Spike | Risque traité / besoin traité | Traitement mis en place | Bonne pratique utilisée |
+|---|---|---|---|
+| SB1 | Dépendance à la découverte OIDC au démarrage ; mauvaise configuration des endpoints ; acceptation de jetons provenant d’un émetteur non attendu. | Configuration explicite des endpoints publics et internes ; absence de découverte au démarrage ; validation du claim `iss`. | Configuration explicite ; séparation des interfaces publiques et internes ; validation stricte de l’émetteur OIDC. |
+| SB2 | Interception ou utilisation frauduleuse d’un code d’autorisation OAuth 2.0. | Activation par défaut de PKCE avec la méthode S256, y compris pour le client confidentiel. | Authorization Code Flow avec PKCE ; utilisation de S256 plutôt que plain ; défense en profondeur. |
+| SB3 | Vol de jetons dans le navigateur ; fixation de session ; sessions trop longues ; perte des sessions au redémarrage du BFF. | Cookie `__Host-SESSION` avec Secure, HttpOnly, SameSite=Lax et Path=/ ; renouvellement de l’identifiant à la connexion ; expiration après inactivité et expiration absolue ; persistance des sessions côté serveur. | Modèle BFF ; confinement des jetons côté serveur ; cookies sécurisés ; protection contre la fixation de session ; durée de vie limitée des sessions. |
+| SB4 | Conditions de course lors de refresh simultanés ; invalidation du refresh token ; déconnexion involontaire des utilisateurs. | Verrou distribué Redis pour sérialiser le renouvellement ; les requêtes concurrentes attendent puis relisent le jeton actualisé. | Synchronisation distribuée ; prévention des conditions de course ; mutualisation du résultat du renouvellement par session. |
+| SB5 | Maintien d’une session après déconnexion ; suppression de sessions non concernées ; rejeu d’un Logout Token. | Réception du back-channel sur l’URL interne ; suppression des sessions associées au `sid` ciblé ; détection des rejeux via `jti`. | Déconnexion OIDC par back-channel ; invalidation ciblée ; protection anti-rejeu ; traitement idempotent à définir explicitement. |
+| SB6 | Transmission incorrecte du jeton aux microservices ; exposition excessive des données ; accès non authentifié ; accès à des routes non autorisées. | Intercepteur `RestClient` pour ajouter le Bearer et renouveler le jeton ; DTO limité à quatre champs ; routes déclarées explicitement ; réponse 401 sans session et 404 pour une route inconnue. | Centralisation de la gestion des jetons ; principe du moindre privilège ; minimisation des données exposées ; liste explicite des routes ; contrôle d’authentification. |
+| SB7 | Attaques CSRF exploitant l’envoi automatique du cookie de session par le navigateur. | Rejet des requêtes sans `Origin`, d’origine étrangère ou sans jeton CSRF ; acceptation d’une requête conforme. | Défense CSRF en profondeur ; validation de l’origine ; jeton anti-CSRF ; refus par défaut des requêtes non conformes. |
+| SB8 | Confusion entre sessions de plusieurs frontends ; déconnexion incomplète ; mauvaise isolation des URI de redirection. | URI de redirection et session BFF propres à chaque frontend ; session SSO centralisée ; propagation de la déconnexion par back-channel à partir du `sid` commun. | Séparation des sessions applicatives et de la session SSO ; isolation des clients ; allowlist des redirect URI ; propagation centralisée de la déconnexion. |
+
+Points de vigilance avant validation en production :
+
+- SB1 : la configuration explicite doit également garantir la validation de la signature, de l’audience et des autres claims pertinents des jetons.
+- SB3 : vérifier la persistance et la cohérence des sessions en environnement multi-instance.
+- SB4 : tester les expirations du verrou Redis, les erreurs réseau et les renouvellements concurrents entre plusieurs instances du BFF.
+- SB5 : décider si un rejeu doit être rejeté explicitement ou traité de manière idempotente ; le comportement HTTP actuel (200) doit correspondre au contrat retenu.
+- SB7 : vérifier la validation effective du jeton CSRF et les méthodes HTTP protégées.
 
 ## 6. Criteres d'acceptation
 
@@ -400,5 +432,5 @@ absolue de la session.
 | NetworkPolicy sans effet sur le Sandbox (politiques imposees `allow-same-namespace`) | Pas de cloisonnement interne sur le Sandbox (SEC-PF-03 ne prouve que leur presence) ; cloisonnement prouve en local (reseaux Docker, SEC-GW-11) | Dette 17 ; a verifier sur un vrai cluster |
 | Limitation de debit non testable depuis Postman | Le Runner envoie les requetes une par une (~16 req/s sous Windows) | SEC-GW-12 ; test de charge en CI (K9) |
 | MFA des internes non active | Connexion des internes par mot de passe seul | K6b |
-| Tests du BFF manuels | SEC-BFF-* rejoues a la main tant que Vitest / Playwright ne sont pas en place | D6-14 (K6a) |
+| Tests du BFF en partie manuels | Playwright couvre SEC-BFF-02, -09 et -13 (en partie) ; les autres SEC-BFF sont rejoues a la main | Automatisation progressive (K6a puis CI) |
 | Certificat auto-signe en local | Verification SSL a desactiver dans Postman (`--insecure` pour Newman, `-k` pour curl) | Route TLS sur OpenShift |
