@@ -36,8 +36,9 @@ build/
 local/.env
 
 audit-donation-api.html
-README.md
-CLAUDE.md
+# Notes locales (jamais versionnees) ; README.md et CLAUDE.md sont versionnes (platform-handbook/CONTRIBUER.md)
+README_local.md
+CLAUDE.local.md
 audit-api-first-15factors.docx
 inventorie-sans-rien-modifier-snappy-cocke.md
 API_FIRST.md
