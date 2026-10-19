@@ -89,6 +89,10 @@ attendu, modes (`dev`, `pile`, `sandbox`), origine (lot et date de premiere vali
 (pile puis Sandbox). Le resultat (vert, ou ecarts avec leur cause) est consigne dans le journal de la ROADMAP. Un
 test « nouveau » n'a pas encore ete execute sous cette forme : il est valide a la premiere recette.
 
+**Derniere recette complete** : Sandbox OpenShift, 18-19/10 (fin de K6a) : tout conforme (SEC-RUN 159 / 159, G2
+ignore), sauf **SEC-OBS-03** (`id_token_hint` de la deconnexion OIDC dans le journal d'APISIX externe, dette 22) ;
+outil de SEC-REALM-01 casse depuis le 10/10 (manifeste a plusieurs documents), corrige le 19/10.
+
 **Variables communes** (PowerShell 7 ; une fenetre par recette ; aucun secret affiche) :
 
 ```powershell
@@ -149,7 +153,7 @@ mvn -q test "-Dtest=JwtValidationTest,SecurityConfigTest,PermissionsTest,Endpoin
 
 | ID | Fonction testee | Commande | Attendu | Modes | Origine |
 |---|---|---|---|---|---|
-| SEC-REALM-01 | Regle Groupe -> Role metier -> Permission (jamais groupe -> permission ni utilisateur -> role) | `cd D:\workspace\public\gitops-platform; python tools/check-realm-rbac.py` | code de sortie 0 ; rouge sur une copie fautive du realm | tous | K4a, 02/10 |
+| SEC-REALM-01 | Regle Groupe -> Role metier -> Permission (jamais groupe -> permission ni utilisateur -> role) | `cd D:\workspace\public\gitops-platform; docker run --rm -v "${PWD}:/w" -w /w python:3.12-alpine sh -c "pip install -q pyyaml && python tools/check-realm-rbac.py"` | code de sortie 0 ; rouge sur une copie fautive du realm | tous | K4a, 02/10 |
 | SEC-REALM-02 | Reimport du realm idempotent (configuration as code, pas de derive) | `cd D:\workspace\public\gitops-platform; docker compose -f local/keycloak/compose.yaml --env-file local/keycloak/.env run --rm keycloak-config; $LASTEXITCODE`, deux fois de suite | 0 les deux fois ; SEC-RUN toujours vert | dev | K1, 28/09 |
 
 ### 5.3 Keycloak : clients, flux et identites (K1, K4a, K4b)
@@ -161,7 +165,7 @@ mvn -q test "-Dtest=JwtValidationTest,SecurityConfigTest,PermissionsTest,Endpoin
 | SEC-KC-03 | Code + PKCE des 6 utilisateurs de test (internes et externes) | SEC-RUN, 01 / Login 1/3 a 3/3 | 302 puis 200 ; permissions, `party_id`, `actor_type` par role | tous | K3-K4b, 01-02/10 |
 | SEC-KC-04 | Console de compte : `party_id` invisible et non modifiable par l'utilisateur | SEC-RUN, 05 / M7 | API de compte 200, `party_id` absent | tous | K4a, 02/10 |
 | SEC-KC-05 | Scope non autorise pour le client refuse | voir ci-dessous | 400 `invalid_scope` | tous | K1, 28/09 (nouveau sous cette forme) |
-| SEC-KC-06 | Client confidentiel sans secret refuse | voir ci-dessous | 401 `invalid_client` | tous | K1, 28/09 (nouveau sous cette forme) |
+| SEC-KC-06 | Client confidentiel sans secret refuse | voir ci-dessous | 401 (`unauthorized_client` avec Keycloak 26 ; `invalid_client` auparavant) | tous | K1, 28/09 (nouveau sous cette forme) |
 | SEC-KC-07 | Grant « password » refuse (desactive sur tous les clients) | voir ci-dessous | 400 `unauthorized_client` | tous | K1, 28/09 (nouveau sous cette forme) |
 | SEC-KC-08 | PKCE obligatoire : demande d'autorisation sans `code_challenge` refusee | voir ci-dessous | 302 vers le `redirect_uri` avec `error=invalid_request` (code_challenge manquant), aucun code | tous | K1, 28/09 (nouveau sous cette forme) |
 | SEC-KC-09 | `redirect_uri` etrangere refusee | voir ci-dessous | 400 (« Invalid parameter: redirect_uri »), aucune redirection | tous | K1, 28/09 (nouveau sous cette forme) |
@@ -300,11 +304,11 @@ oc --kubeconfig $ks logs deploy/apisix-external -n $ns --since=30m | Select-Stri
 |---|---|---|---|---|---|
 | SEC-PF-01 | Etat du deploiement, une seule entree publique de la chaine, TLS edge | commande ci-dessous | apps `Synced` / `Healthy` ; pods 1/1 (hors builds et Job termines) ; Route `donation` en `edge`, seule Route de la chaine (`grafana`, `jenkins` hors chaine) | sandbox | O1, 10/10 |
 | SEC-PF-02 | L'API n'est plus joignable directement (Route `donation-api` supprimee) | commande ci-dessous | 503 (routeur : aucune application) | sandbox | O1-5, 10/10 |
-| SEC-PF-03 | NetworkPolicy declarees pour chaque composant | `oc --kubeconfig $ks get networkpolicy -n $ns` | les 7 politiques de la chaine presentes (sans effet sur le Sandbox : section 7, dette 17) | sandbox | O1-5, 10/10 |
+| SEC-PF-03 | NetworkPolicy declarees pour chaque composant | `oc --kubeconfig $ks get networkpolicy -n $ns` | les 10 politiques de la chaine presentes (`apisix-external`, `apisix-internal`, `donation-api`, `donation-api-mysql`, `donation-web`, `keycloak`, `keycloak-db`, `mailpit`, `web-bff-customers`, `web-bff-redis`) (sans effet sur le Sandbox : section 7, dette 17) | sandbox | O1-5, 10/10 |
 
 ```powershell
 # SEC-PF-01
-k --context minikube get applications -n argocd
+kubectl --context argocd get applications -n argocd
 oc --kubeconfig $ks get pods -n $ns
 oc --kubeconfig $ks get routes -n $ns -o custom-columns=NOM:.metadata.name,HOTE:.spec.host,TLS:.spec.tls.termination
 # SEC-PF-02
@@ -318,15 +322,16 @@ curl.exe -s -o NUL -w "ancienne Route de l'API -> %{http_code}`n" https://donati
 | SEC-OBS-01 | Grafana refuse l'anonyme | `OBSERVABILITY-TEST.md` section 5 | 401 | sandbox | 26/09, revalide 10/10 |
 | SEC-OBS-02 | Reception OTLP non exposee publiquement | `OBSERVABILITY-TEST.md` section 5 | 302 (login Grafana), pas d'ingestion | sandbox | 26/09, revalide 10/10 |
 | SEC-OBS-03 | Aucun token dans les logs des composants de la chaine | commande ci-dessous (apres SEC-RUN) | `0` pour chaque composant | pile, sandbox | nouveau |
+| SEC-OBS-04 | Aucun `id_token_hint` en clair dans le journal d'APISIX externe (deconnexion OIDC) | `oc --kubeconfig $ks logs deploy/apisix-external -n $ns --since=2h \| Select-String 'id_token_hint=eyJ' \| Measure-Object` apres une deconnexion | `0` ; valeur masquee (`id_token_hint=***`) | pile, sandbox | a faire (dette 22 ; SEC-OBS-03 en ecart le 18/10) |
 
 ```powershell
 $motif = 'eyJ[A-Za-z0-9_-]{10,}\.eyJ|Bearer [A-Za-z0-9._-]{20,}'
 # pile
 cd D:\workspace\public\gitops-platform\local\stack
-'apisix-ext', 'apisix-int', 'donation-api', 'keycloak' | ForEach-Object {
+'apisix-ext', 'apisix-int', 'donation-api', 'keycloak', 'web-bff-customers', 'donation-web' | ForEach-Object {
   "{0,-15} {1}" -f $_, (docker compose logs --no-color $_ | Select-String -Pattern $motif | Measure-Object).Count }
 # sandbox
-'apisix-external', 'apisix-internal', 'donation-api', 'keycloak' | ForEach-Object {
+'apisix-external', 'apisix-internal', 'donation-api', 'keycloak', 'web-bff-customers', 'donation-web' | ForEach-Object {
   "{0,-15} {1}" -f $_, (oc --kubeconfig $ks logs deploy/$_ -n $ns --since=2h | Select-String -Pattern $motif | Measure-Object).Count }
 ```
 
@@ -334,15 +339,15 @@ cd D:\workspace\public\gitops-platform\local\stack
 
 | ID | Fonction testee | Commande | Attendu | Modes | Origine |
 |---|---|---|---|---|---|
-| SEC-SECRET-01 | Aucun fichier secret suivi par Git (7 depots) | commande ci-dessous | aucune ligne | poste | O7, 24/09 (nouveau sous cette forme) |
+| SEC-SECRET-01 | Aucun fichier secret suivi par Git (9 depots) | commande ci-dessous | aucune ligne | poste | O7, 24/09 (nouveau sous cette forme) |
 | SEC-SECRET-02 | Environnements Postman versionnes sans secret | commande ci-dessous | aucune ligne | poste | K5, 08/10 (nouveau sous cette forme) |
 | SEC-SECRET-03 | Tokens OpenShift : aucun token expose encore actif | commande ci-dessous | `actif : False` pour chaque token trouve en clair ; `ocs logout` sinon | sandbox | dette 1, 10/10 |
 | SEC-SECRET-04 | Sauvegarde des fichiers locaux chiffree, en-tetes compris | commande ci-dessous | la liste sans mot de passe echoue ; `7z t` avec mot de passe : `Everything is Ok` | poste | backup v3, 10/10 |
 
 ```powershell
 # SEC-SECRET-01
-$motif = '(^|/)\.env$|\.dev\.yaml$|\.tfvars$|\.tfstate|postman_test_run|\.key$|\.pem$|motpass'
-foreach ($d in 'craft-platform', 'gen-ai-api', 'gitops-platform', 'inner-donation-api', 'inner-order-api', 'jenkins-on-openshift-manifests', 'jenkins-on-openshift-with-terraform') {
+$motif = '(^|/)\.env$|\.dev\.yaml$|\.tfvars$|\.tfstate|\.tfplan$|postman_test_run|\.key$|\.pem$|motpass'
+foreach ($d in 'craft-platform', 'gen-ai-api', 'gitops-platform', 'inner-donation-api', 'inner-order-api', 'jenkins-on-openshift-manifests', 'jenkins-on-openshift-with-terraform', 'web-bff', 'donation-web') {
   git -C "D:\workspace\public\$d" ls-files | Select-String -Pattern $motif | ForEach-Object { "$d : $_" } }
 # SEC-SECRET-02 : valeur non vide pour une cle de secret
 Get-ChildItem D:\workspace\public\inner-donation-api\postman\*.postman_environment.json | ForEach-Object {
