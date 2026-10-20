@@ -86,7 +86,7 @@ autorisation, audit), `GW` (passerelles et bordure), `PF` (plateforme OpenShift)
 attendu, modes (`dev`, `pile`, `sandbox`), origine (lot et date de premiere validation).
 
 **Regle** : recette securite complete a la fin de chaque lot qui touche la securite, **obligatoire a la fin de K6**
-(pile puis Sandbox). Le resultat (vert, ou ecarts avec leur cause) est consigne dans le journal de la ROADMAP. Un
+(pile puis Sandbox). Le resultat (vert, ou ecarts avec leur cause) est consigne dans le journal du mois (`platform-handbook/journal/`). Un
 test « nouveau » n'a pas encore ete execute sous cette forme : il est valide a la premiere recette.
 
 **Derniere recette complete** : Sandbox OpenShift, 18-19/10 (fin de K6a) : tout conforme (SEC-RUN 159 / 159, G2
@@ -236,7 +236,7 @@ Remove-Variable p, faux
 | SEC-GW-01 | WAF : injection SQL en parametre, traversee de chemin | SEC-RUN, 08 / G1, G3 | 403 par le WAF (corps sans `/problem/`) | pile, sandbox | K5, 07/10 |
 | SEC-GW-02 | WAF : XSS dans un corps JSON | SEC-RUN, 08 / G2 | **ignore** : corps non inspectes (section 7, dette 16) | pile, sandbox | K5, 08/10 |
 | SEC-GW-03 | WAF : pas de faux positif sur des donnees legitimes (accents, apostrophe, tiret), PATCH / DELETE autorises | SEC-RUN, 08 / G4-G5 | 201 puis 204 | pile, sandbox | K5, 07-08/10 |
-| SEC-GW-04 | WAF : Content-Type non supporte refuse a la bordure | collection `observabilite`, S2 cas 5 (`OBSERVABILITY-TEST.md` 1 bis) | 403 (regle CRS 920420) | pile, sandbox | 10/10 |
+| SEC-GW-04 | WAF : Content-Type non supporte refuse a la bordure | collection `observabilite`, S2 cas 5 (`platform-handbook/runbooks/recette-observabilite.md` 1 bis) | 403 (regle CRS 920420) | pile, sandbox | 10/10 |
 | SEC-GW-05 | Liste blanche : console admin Keycloak, realm master, chemin inconnu, `/management`, `/docs` | SEC-RUN, 08 / G6-G8 et 00 / S1-S4 | 404 | pile, sandbox | K5, 07/10 |
 | SEC-GW-06 | APISIX interne : sans token, emetteur inconnu | SEC-RUN, 08 / G9-G10 | 401 par APISIX interne, l'API n'est pas appelee | pile, sandbox | K5, 07/10 |
 | SEC-GW-07 | Token falsifie (permissions ajoutees, signature d'origine) | SEC-RUN, 08 / G11 | 401 | pile, sandbox | K5, 07/10 |
@@ -319,8 +319,8 @@ curl.exe -s -o NUL -w "ancienne Route de l'API -> %{http_code}`n" https://donati
 
 | ID | Fonction testee | Commande | Attendu | Modes | Origine |
 |---|---|---|---|---|---|
-| SEC-OBS-01 | Grafana refuse l'anonyme | `OBSERVABILITY-TEST.md` section 5 | 401 | sandbox | 26/09, revalide 10/10 |
-| SEC-OBS-02 | Reception OTLP non exposee publiquement | `OBSERVABILITY-TEST.md` section 5 | 302 (login Grafana), pas d'ingestion | sandbox | 26/09, revalide 10/10 |
+| SEC-OBS-01 | Grafana refuse l'anonyme | `recette-observabilite.md` section 5 | 401 | sandbox | 26/09, revalide 10/10 |
+| SEC-OBS-02 | Reception OTLP non exposee publiquement | `recette-observabilite.md` section 5 | 302 (login Grafana), pas d'ingestion | sandbox | 26/09, revalide 10/10 |
 | SEC-OBS-03 | Aucun token dans les logs des composants de la chaine | commande ci-dessous (apres SEC-RUN) | `0` pour chaque composant | pile, sandbox | nouveau |
 | SEC-OBS-04 | Aucun `id_token_hint` en clair dans le journal d'APISIX externe (deconnexion OIDC) | `oc --kubeconfig $ks logs deploy/apisix-external -n $ns --since=2h \| Select-String 'id_token_hint=eyJ' \| Measure-Object` apres une deconnexion | `0` ; valeur masquee (`id_token_hint=***`) | pile, sandbox | a faire (dette 22 ; SEC-OBS-03 en ecart le 18/10) |
 
@@ -347,7 +347,7 @@ cd D:\workspace\public\gitops-platform\local\stack
 ```powershell
 # SEC-SECRET-01
 $motif = '(^|/)\.env$|\.dev\.yaml$|\.tfvars$|\.tfstate|\.tfplan$|postman_test_run|\.key$|\.pem$|motpass'
-foreach ($d in 'artifacts-manager', 'gen-ai-api', 'gitops-platform', 'inner-donation-api', 'inner-order-api', 'jenkins-on-openshift-manifests', 'jenkins-on-openshift-with-terraform', 'web-bff', 'donation-web', 'platform-handbook') {
+foreach ($d in 'artifacts-manager', 'gen-ai-api', 'gitops-platform', 'inner-donation-api', 'jenkins-on-openshift-manifests', 'jenkins-on-openshift-with-terraform', 'web-bff', 'donation-web', 'platform-handbook') {
   git -C "D:\workspace\public\$d" ls-files | Select-String -Pattern $motif | ForEach-Object { "$d : $_" } }
 # SEC-SECRET-02 : valeur non vide pour une cle de secret
 Get-ChildItem D:\workspace\public\inner-donation-api\postman\*.postman_environment.json | ForEach-Object {
@@ -401,7 +401,7 @@ session masques, jamais de token affiche.
 ### 5.10 Capitalisation des spikes BFF Spring (SB1-SB8, 13/10)
 
 Spike du BFF Spring Boot 4 / Spring Security 7 (`web-bff-customers`, Keycloak local, Redis avec ACL), tous les points
-conformes. Resultats detailles et precisions DB3 a DB9 : ADR du 13/10 de `jenkins-on-openshift-with-terraform/docs/ROADMAP.md`.
+conformes. Resultats detailles et precisions DB3 a DB9 : ADR 0027 de `platform-handbook` (`adr/0027-spike-bff-spring.md`).
 Les tests SEC-BFF de la section 5.9 seront reecrits pour Spring a partir de ce tableau, et les points de vigilance
 deviendront des tests SEC-BFF avant la recette securite complete.
 
