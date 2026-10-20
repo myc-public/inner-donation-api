@@ -346,7 +346,7 @@ cd D:\workspace\public\gitops-platform\local\stack
 
 ```powershell
 # SEC-SECRET-01
-$motif = '(^|/)\.env$|\.dev\.yaml$|\.tfvars$|\.tfstate|\.tfplan$|postman_test_run|\.key$|\.pem$|motpass'
+$motif = '(^|/)\.env$|\.dev\.yaml$|\.tfvars$|\.tfstate|\.tfplan$|(^|/)tfplan$|postman_test_run|\.key$|\.pem$|motpass'
 foreach ($d in 'artifacts-manager', 'gen-ai-api', 'gitops-platform', 'inner-donation-api', 'jenkins-on-openshift-manifests', 'jenkins-on-openshift-with-terraform', 'web-bff', 'donation-web', 'platform-handbook') {
   git -C "D:\workspace\public\$d" ls-files | Select-String -Pattern $motif | ForEach-Object { "$d : $_" } }
 # SEC-SECRET-02 : valeur non vide pour une cle de secret
