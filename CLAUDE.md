@@ -11,7 +11,7 @@ API des dons (Spring Boot 4, Java 21, MySQL). Lire d'abord [README.md](README.md
 
 ## Règles propres à ce dépôt
 
-- Toute création de don écrit `donation` et `outbox_event` dans la même transaction ; jamais d'appel Kafka ni
+- Toute création de don ou de donateur écrit sa ligne métier et `outbox_event` dans la même transaction ; jamais d'appel Kafka ni
   réseau dans le service (ADR 0018).
 - Toute modification ou suppression de don passe par `AuditRecorder`, dans la transaction.
 - Chaque opération REST porte un `@PreAuthorize` avec une constante de `Permissions` ; un nom de permission =

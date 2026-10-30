@@ -31,7 +31,10 @@ public class OutboxFactory {
     public OutboxEventBO newEvent(EventEnvelope<?> envelope) {
         Instant now = Instant.now(clock);
 
-        String payloadJson = writeJson(envelope);
+        TraceContext traceContext = tracer.currentTraceContext().context();
+
+        // traceId dans le corps de l'evenement : seul moyen de le retrouver dans Elasticsearch (ADR 0037, DE35)
+        String payloadJson = writeJson(envelope.withTraceId(traceId(traceContext)));
 
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("eventId", envelope.eventId().toString());
@@ -46,7 +49,6 @@ public class OutboxFactory {
 
         // Contexte de trace W3C (traceparent, tracestate) : le CDC le recopiera dans les en-tetes du
         // message, la trace continuera cote consommateur (propagation asynchrone)
-        TraceContext traceContext = tracer.currentTraceContext().context();
         if (traceContext != null) {
             propagator.inject(traceContext, headers, Map::put);
         }
@@ -61,8 +63,17 @@ public class OutboxFactory {
                 envelope.eventVersion(),
                 payloadJson,
                 headersJson,
-                now
+                now,
+                headers.get("traceparent")
         );
+    }
+
+    // Tracer NOOP : contexte present mais identifiant vide -> null, comme sans trace
+    private static String traceId(TraceContext traceContext) {
+        if (traceContext == null || traceContext.traceId().isBlank()) {
+            return null;
+        }
+        return traceContext.traceId();
     }
 
     private static void putIfNotNull(Map<String, String> map, String k, String v) {

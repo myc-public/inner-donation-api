@@ -1,8 +1,8 @@
 # inner-donation-api
 
 API des dons et des donateurs, service pilote du socle **myc-public**. Spring Boot 4, Java 21, MySQL, parent Maven
-`craft-parent` (dépôt `artifacts-manager`). Chaque création de don écrit, dans la même transaction, un événement
-dans la table `outbox_event` ; l'API ne connaît pas Kafka (ADR 0018). Les modifications et suppressions sont
+`craft-parent` (dépôt `artifacts-manager`). Chaque création de don ou de donateur écrit, dans la même transaction,
+un événement dans la table `outbox_event` ; l'API ne connaît pas Kafka (ADR 0018). Les modifications et suppressions sont
 auditées dans `audit_outbox` (ADR 0017).
 
 Place dans le socle : navigateur -> APISIX externe -> web-bff -> APISIX interne -> **inner-donation-api** -> MySQL.
@@ -71,7 +71,6 @@ Variables : [`local/.env.example`](local/.env.example) (mêmes noms que la Confi
 | `MANAGEMENT_ADMIN_*`, `MANAGEMENT_VIEWER_*` | comptes des endpoints `/management` |
 | `OIDC_INTERNAL_*`, `OIDC_CUSTOMERS_*` | émetteurs Keycloak (défaut : Keycloak local, port 8180) |
 | `MYC_CONTEXT` | préfixe derrière la passerelle (défaut hors local : `/api/donation/`) |
-| `OUTBOX_*` | réglages de l'outbox (`app.outbox`) |
 
 ## Documentation
 

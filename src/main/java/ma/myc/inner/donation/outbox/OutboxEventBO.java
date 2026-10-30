@@ -43,6 +43,9 @@ public class OutboxEventBO {
     @Column(name= "occurred_at", nullable = false, updatable = false)
     private Instant occurredAt;
 
+    @Column(name = "traceparent", length = 55)
+    private String traceparent; // W3C, recopie en en-tete Kafka par le CDC
+
 
     protected OutboxEventBO() {
     }
@@ -54,7 +57,8 @@ public class OutboxEventBO {
                          String eventVersion,
                          String payload,
                          String headers,
-                         Instant occurredAt) {
+                         Instant occurredAt,
+                         String traceparent) {
         this.id = id;
         this.aggregateType = aggregateType;
         this.aggregateId = aggregateId;
@@ -63,6 +67,7 @@ public class OutboxEventBO {
         this.payload = payload;
         this.headers = headers;
         this.occurredAt = occurredAt;
+        this.traceparent = traceparent;
     }
 
     public UUID getId() {
@@ -95,6 +100,10 @@ public class OutboxEventBO {
 
     public Instant getOccurredAt() {
         return occurredAt;
+    }
+
+    public String getTraceparent() {
+        return traceparent;
     }
 
     /**

@@ -12,5 +12,12 @@ public record EventEnvelope<T>(
         String aggregateType,
         String aggregateId,
         String producer,
+        String traceId, // pose par OutboxFactory ; null hors trace (ADR 0037, DE35)
         T payload
-) {}
+) {
+
+    public EventEnvelope<T> withTraceId(String value) {
+        return new EventEnvelope<>(eventId, eventType, eventVersion, occurredAt, aggregateType, aggregateId,
+                producer, value, payload);
+    }
+}

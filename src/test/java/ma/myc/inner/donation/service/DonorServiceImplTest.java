@@ -5,9 +5,15 @@ import ma.myc.inner.donation.domain.dto.CreateDonorRequest;
 import ma.myc.inner.donation.domain.dto.DonorResponse;
 import ma.myc.inner.donation.domain.dto.RegisterDonorRequest;
 import ma.myc.inner.donation.domain.dto.UpdateDonorRequest;
+import ma.myc.inner.donation.events.DonorCreatedEventPayload;
+import ma.myc.inner.donation.events.DonorEventMapper;
+import ma.myc.inner.donation.events.EventEnvelope;
 import ma.myc.inner.donation.exception.DonorAlreadyExistsException;
 import ma.myc.inner.donation.exception.NotFoundException;
 import ma.myc.inner.donation.mapper.DonorMapper;
+import ma.myc.inner.donation.outbox.OutboxEventBO;
+import ma.myc.inner.donation.outbox.OutboxEventRepository;
+import ma.myc.inner.donation.outbox.OutboxFactory;
 import ma.myc.inner.donation.repository.DonorRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,6 +37,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +48,15 @@ class DonorServiceImplTest {
 
     @Mock
     private DonorMapper donorMapper;
+
+    @Mock
+    private DonorEventMapper donorEventMapper;
+
+    @Mock
+    private OutboxFactory outboxFactory;
+
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
 
     @InjectMocks
     private DonorServiceImpl donorService;
@@ -78,6 +94,45 @@ class DonorServiceImplTest {
     }
 
     @Test
+    @DisplayName("create: writes the donor, then one DonorCreated event in the outbox")
+    @SuppressWarnings("unchecked")
+    void create_writesOutboxEvent() {
+        var request = new CreateDonorRequest("Doe", "John", EMAIL, LocalDate.of(1990, 1, 1), "MA");
+        DonorBO donor = buildDonorBO();
+        EventEnvelope<DonorCreatedEventPayload> envelope = mock(EventEnvelope.class);
+        OutboxEventBO outboxEvent = mock(OutboxEventBO.class);
+
+        when(donorRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(donorMapper.toBo(request)).thenReturn(donor);
+        when(donorRepository.save(donor)).thenReturn(donor);
+        when(donorEventMapper.toDonorCreatedEnvelope(eq(donor), any())).thenReturn(envelope);
+        when(outboxFactory.newEvent(envelope)).thenReturn(outboxEvent);
+
+        donorService.create(request);
+
+        var inOrder = inOrder(donorRepository, outboxEventRepository);
+        inOrder.verify(donorRepository).save(donor);
+        inOrder.verify(outboxEventRepository).save(outboxEvent);
+    }
+
+    @Test
+    @DisplayName("create: an outbox failure is propagated, so the transaction rolls back (EDA-T02)")
+    void create_outboxFailure_propagates() {
+        var request = new CreateDonorRequest("Doe", "John", EMAIL, LocalDate.of(1990, 1, 1), "MA");
+        DonorBO donor = buildDonorBO();
+
+        when(donorRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(donorMapper.toBo(request)).thenReturn(donor);
+        when(donorRepository.save(donor)).thenReturn(donor);
+        when(outboxEventRepository.save(any())).thenThrow(new IllegalStateException("outbox down"));
+
+        assertThatThrownBy(() -> donorService.create(request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("outbox down");
+        verify(donorMapper, never()).toResponse(any());
+    }
+
+    @Test
     @DisplayName("create: throws DonorAlreadyExistsException when email is already registered")
     void create_emailAlreadyExists_throwsException() {
         var request = new CreateDonorRequest("Doe", "John", EMAIL, LocalDate.of(1990, 1, 1), "MA");
@@ -90,6 +145,7 @@ class DonorServiceImplTest {
                 .message().doesNotContain(EMAIL);
 
         verify(donorRepository, never()).save(any());
+        verifyNoInteractions(donorEventMapper, outboxFactory, outboxEventRepository);
     }
 
     // ─── get ──────────────────────────────────────────────────────────────────
@@ -243,6 +299,9 @@ class DonorServiceImplTest {
         assertThat(saved.getValue().getId()).isEqualTo(DONOR_ID);
         assertThat(saved.getValue().getEmail()).isEqualTo(EMAIL);
         verify(donorMapper, never()).toBo(any());
+        // Second chemin de creation : meme evenement (DE17)
+        verify(donorEventMapper).toDonorCreatedEnvelope(eq(saved.getValue()), any());
+        verify(outboxEventRepository).save(any());
     }
 
     @Test

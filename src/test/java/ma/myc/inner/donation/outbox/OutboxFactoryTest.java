@@ -31,6 +31,7 @@ class OutboxFactoryTest {
     private static final Instant NOW = Instant.parse("2026-01-15T10:00:00Z");
     private static final Instant OCCURRED_AT = Instant.parse("2026-01-15T09:59:58Z");
     private static final UUID EVENT_ID = UUID.randomUUID();
+    private static final String TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
     private static final String TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
     // Vrai mapper Jackson 3 (pas de mock) : on verifie la serialisation reelle de l'outbox
@@ -53,6 +54,7 @@ class OutboxFactoryTest {
         Propagator propagator = mock(Propagator.class);
         when(tracer.currentTraceContext()).thenReturn(currentTraceContext);
         when(currentTraceContext.context()).thenReturn(traceContext);
+        when(traceContext.traceId()).thenReturn(TRACE_ID);
         doAnswer(invocation -> {
             Propagator.Setter<Map<String, String>> setter = invocation.getArgument(2);
             setter.set(invocation.getArgument(1), "traceparent", TRACEPARENT);
@@ -63,6 +65,8 @@ class OutboxFactoryTest {
         OutboxEventBO event = factory.newEvent(envelope("donation-service", new Payload("donation-42", 150)));
 
         assertThat(jsonMapper.readTree(event.getHeaders()).get("traceparent").asString()).isEqualTo(TRACEPARENT);
+        assertThat(event.getTraceparent()).isEqualTo(TRACEPARENT);
+        assertThat(jsonMapper.readTree(event.getPayload()).get("traceId").asString()).isEqualTo(TRACE_ID);
     }
 
     @Test
@@ -71,6 +75,8 @@ class OutboxFactoryTest {
         OutboxEventBO event = outboxFactory.newEvent(envelope("donation-service", new Payload("donation-42", 150)));
 
         assertThat(jsonMapper.readTree(event.getHeaders()).has("traceparent")).isFalse();
+        assertThat(event.getTraceparent()).isNull();
+        assertThat(jsonMapper.readTree(event.getPayload()).get("traceId").isNull()).isTrue();
     }
 
     @Test
@@ -117,7 +123,7 @@ class OutboxFactoryTest {
 
     private static EventEnvelope<Object> envelope(String producer, Object payload) {
         return new EventEnvelope<>(EVENT_ID, "DonationCreated", "1", OCCURRED_AT,
-                "Donation", "donation-42", producer, payload);
+                "Donation", "donation-42", producer, null, payload);
     }
 
     record Payload(String donationId, int amount) {}
