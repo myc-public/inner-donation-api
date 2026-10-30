@@ -32,6 +32,7 @@
 		<lombok-mapstruct-bind.version>0.2.0</lombok-mapstruct-bind.version>
 		<jacoco.version>0.8.15</jacoco.version>
 		<mockito-inline.version>5.2.0</mockito-inline.version>
+		<json-schema-validator.version>3.0.1</json-schema-validator.version>
 		<org.mapstruct.version>1.4.2.Final</org.mapstruct.version>
 		<!-- Ligne 3.0.x = Spring Boot 4.0 (2.x -> NoSuchMethodError ControllerAdviceBean, /docs/api-docs en 500) -->
 		<springdoc.version>3.0.3</springdoc.version>
@@ -157,6 +158,13 @@
 			<groupId>org.mockito</groupId>
 			<artifactId>mockito-inline</artifactId>
 			<version>${mockito-inline.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<!-- Conformite des evenements a leurs schemas JSON (EDA3) -->
+		<dependency>
+			<groupId>com.networknt</groupId>
+			<artifactId>json-schema-validator</artifactId>
+			<version>${json-schema-validator.version}</version>
 			<scope>test</scope>
 		</dependency>
 		

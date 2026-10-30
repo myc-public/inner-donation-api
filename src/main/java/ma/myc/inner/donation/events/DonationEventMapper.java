@@ -45,6 +45,7 @@ public class DonationEventMapper {
                 "Donation",
                 donation.getId().toString(),
                 producer,
+                null,
                 payload
         );
     }

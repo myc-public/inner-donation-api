@@ -15,15 +15,15 @@ Racine `src/main/java/ma/myc/inner/donation/` :
 | `domain/bo`, `domain/dto` | Entités JPA (`DonorBO`, `DonationBO`) ; DTO d'entrée et de sortie (records) |
 | `domain/core/error` | Modèle d'erreur `ApiError` |
 | `mapper` | MapStruct (`DonorMapper`, `DonationMapper`) |
-| `events` | Enveloppe `EventEnvelope` et payload `DonationCreated` |
+| `events` | Enveloppe `EventEnvelope`, payloads `DonationCreated` et `DonorCreated` |
 | `outbox` | `OutboxEventBO`, `OutboxFactory`, `OutboxEventSaved` (fait technique publié après chaque écriture) |
 | `audit` | `AuditRecorder`, `AuditOutboxBO`, `AuditEvent` (K4d) |
 | `config/security` | Chaîne de sécurité, conversion des claims, `CurrentParty`, `Permissions` |
 | `config/observability` | Logs OpenTelemetry, métriques métier (`OutboxMetricsListener`) |
-| `config/properties` | `@ConfigurationProperties` (`myc.*`, `app.outbox`) |
+| `config/properties` | `@ConfigurationProperties` (`myc.*`) |
 | `exception`, `util` | Exceptions métier et techniques ; utilitaires |
 
-Schéma : Flyway (`src/main/resources/db/migration`, V1 à V3), Hibernate en `validate` uniquement.
+Schéma : Flyway (`src/main/resources/db/migration`, V1 à V5), Hibernate en `validate` uniquement.
 
 ## Création d'un don et outbox
 
@@ -38,8 +38,13 @@ Schéma : Flyway (`src/main/resources/db/migration`, V1 à V3), Hibernate en `va
 Les deux lignes sont commitées ensemble ou pas du tout. L'API ne connaît pas Kafka (ADR 0018) : le routage (topic,
 clé = `aggregate_id`) est laissé au CDC, d'où la suppression des colonnes `topic` et `message_key` (V3). Le relais
 CDC (Debezium) n'existe pas encore : voir la roadmap
-[EDA](https://github.com/myc-public/platform-handbook/blob/develop/roadmap/eda.md). Les propriétés `app.outbox.*`
-(intervalle, lot, tentatives, backoff) sont déclarées pour ce relais ; aucun code de l'API ne les lit.
+[EDA](https://github.com/myc-public/platform-handbook/blob/develop/roadmap/eda.md).
+
+`DonorServiceImpl` suit le même schéma pour `create` et `registerSelf` : événement `DonorCreated` (état complet du
+donateur, ADR 0035). `OutboxFactory` pose `traceId` dans l'enveloppe et remplit la colonne `traceparent` (V4), que le CDC
+recopie en en-tête Kafka. Contrats : `src/main/resources/events/*.schema.json`, vérifiés par `EventSchemasTest`.
+
+La purge est déclarée en base (V5, événement MySQL `evt_outbox_purge`, rétention 7 jours) : aucun code dans l'API.
 
 Après le commit, `OutboxMetricsListener` lit l'événement `OutboxEventSaved` et alimente les métriques métier.
 

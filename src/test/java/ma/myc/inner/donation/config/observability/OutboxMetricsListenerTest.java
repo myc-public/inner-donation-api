@@ -79,7 +79,7 @@ class OutboxMetricsListenerTest {
 		var payload = new DonationCreatedEventPayload(category, false, amount, Instant.parse("2026-09-26T10:00:00Z"),
 				UUID.randomUUID(), LocalDate.of(1990, 1, 1), country);
 		var envelope = new EventEnvelope<>(UUID.randomUUID(), "DonationCreated", "1",
-				Instant.parse("2026-09-26T10:00:00Z"), "Donation", UUID.randomUUID().toString(), "inner-donation-api", payload);
+				Instant.parse("2026-09-26T10:00:00Z"), "Donation", UUID.randomUUID().toString(), "inner-donation-api", null, payload);
 		return new OutboxEventSaved("DonationCreated", "Donation", jsonMapper.writeValueAsString(envelope));
 	}
 }

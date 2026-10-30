@@ -96,15 +96,6 @@ jdbc:
     # Jamais les valeurs des parametres dans les traces (email, montant...) : seulement le SQL
     include-parameter-values: false
 
-app:
-  outbox:
-    poll-interval-ms: ${OUTBOX_POLL_INTERVAL:2000}
-    batch-size: ${OUTBOX_BATCH_SIZE:50}
-    max-attempts: ${OUTBOX_MAX_ATTEMPTS:10}
-    lock-ttl: ${OUTBOX_LOCK_TTL:PT30S}
-    initial-backoff: ${OUTBOX_INITIAL_BACKOFF:PT1S}
-    max-backoff: ${OUTBOX_MAX_BACKOFF:PT30S}
-
 ### LOG LEVEL ###
 logging:
   level:

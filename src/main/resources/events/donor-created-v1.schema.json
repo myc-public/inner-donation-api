@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myc.ma/schemas/donation-api/donor-created-v1.schema.json",
+  "title": "DonorCreated v1",
+  "description": "Creation d'un donateur (Event-Carried State Transfer, ADR 0035). Colonne payload de outbox_event, publiee par le CDC sur le topic donor.events, cle = aggregateId. Contient des donnees personnelles : jamais dans les logs ni les traces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "aggregateType", "aggregateId", "producer", "traceId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "DonorCreated" },
+    "eventVersion": { "const": "1" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "aggregateType": { "const": "Donor" },
+    "aggregateId": { "type": "string", "format": "uuid", "description": "Identifiant du donateur" },
+    "producer": { "type": ["string", "null"] },
+    "traceId": { "type": ["string", "null"], "description": "Trace de la requete, null hors trace" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lastName", "firstName", "email", "dateOfBirth", "country", "createdAt"],
+      "properties": {
+        "lastName": { "type": "string" },
+        "firstName": { "type": "string" },
+        "email": { "type": "string" },
+        "dateOfBirth": { "type": ["string", "null"], "format": "date" },
+        "country": { "type": ["string", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

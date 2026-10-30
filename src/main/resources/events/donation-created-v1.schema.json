@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myc.ma/schemas/donation-api/donation-created-v1.schema.json",
+  "title": "DonationCreated v1",
+  "description": "Creation d'un don avec l'instantane du donateur (Event-Carried State Transfer, ADR 0035). Colonne payload de outbox_event, publiee par le CDC sur le topic donation.events, cle = aggregateId. La date de naissance n'est pas indexee dans Elasticsearch (DE22).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "aggregateType", "aggregateId", "producer", "traceId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "DonationCreated" },
+    "eventVersion": { "const": "1" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "aggregateType": { "const": "Donation" },
+    "aggregateId": { "type": "string", "format": "uuid", "description": "Identifiant du don" },
+    "producer": { "type": ["string", "null"] },
+    "traceId": { "type": ["string", "null"], "description": "Trace de la requete, null hors trace" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "type", "amount", "timestamp", "donorID", "dateOfBirth", "country"],
+      "properties": {
+        "category": { "enum": ["FOOD", "HEALTH", "EDUCATION", "ENVIRONMENT", "OTHER"] },
+        "type": { "type": "boolean", "description": "true = recurrent, false = ponctuel" },
+        "amount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "donorID": { "type": "string", "format": "uuid" },
+        "dateOfBirth": { "type": ["string", "null"], "format": "date" },
+        "country": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

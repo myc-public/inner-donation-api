@@ -6,12 +6,16 @@ import ma.myc.inner.donation.domain.dto.CreateDonorRequest;
 import ma.myc.inner.donation.domain.dto.DonorResponse;
 import ma.myc.inner.donation.domain.dto.RegisterDonorRequest;
 import ma.myc.inner.donation.domain.dto.UpdateDonorRequest;
+import ma.myc.inner.donation.events.DonorEventMapper;
 import ma.myc.inner.donation.exception.DonorAlreadyExistsException;
 import ma.myc.inner.donation.exception.NotFoundException;
 import ma.myc.inner.donation.mapper.DonorMapper;
+import ma.myc.inner.donation.outbox.OutboxEventRepository;
+import ma.myc.inner.donation.outbox.OutboxFactory;
 import ma.myc.inner.donation.repository.DonorRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -28,9 +32,24 @@ public class DonorServiceImpl implements DonorService {
     private final DonorRepository donorRepository;
     private final DonorMapper donorMapper;
 
-    public DonorServiceImpl(DonorRepository donorRepository, DonorMapper donorMapper) {
+    private final DonorEventMapper donorEventMapper;
+    private final OutboxFactory outboxFactory;
+    private final OutboxEventRepository outboxEventRepository;
+
+    private final String producerName;
+
+    public DonorServiceImpl(DonorRepository donorRepository,
+                            DonorMapper donorMapper,
+                            DonorEventMapper donorEventMapper,
+                            OutboxFactory outboxFactory,
+                            OutboxEventRepository outboxEventRepository,
+                            @Value("${spring.application.name:donation-service}") String producerName) {
         this.donorRepository = donorRepository;
         this.donorMapper = donorMapper;
+        this.donorEventMapper = donorEventMapper;
+        this.outboxFactory = outboxFactory;
+        this.outboxEventRepository = outboxEventRepository;
+        this.producerName = producerName;
     }
 
 
@@ -44,9 +63,8 @@ public class DonorServiceImpl implements DonorService {
         }
         DonorBO donor = donorMapper.toBo(request);
         donor.setCreatedAt(Instant.now());
-        DonorBO saved = donorRepository.save(donor);
 
-        return donorMapper.toResponse(saved);
+        return donorMapper.toResponse(saveAndPublish(donor));
     }
 
     @Override
@@ -63,7 +81,7 @@ public class DonorServiceImpl implements DonorService {
         }
         DonorBO donor = new DonorBO(donorId, request.lastName(), request.firstName(), email,
                 request.dateOfBirth(), request.country(), Instant.now());
-        return donorMapper.toResponse(donorRepository.save(donor));
+        return donorMapper.toResponse(saveAndPublish(donor));
     }
 
     @Override
@@ -97,6 +115,13 @@ public class DonorServiceImpl implements DonorService {
     public void delete(UUID donorId) {
         log.info("Deleting donor donorId={}", donorId);
         donorRepository.delete(findDonor(donorId));
+    }
+
+    // Meme transaction : le donateur et son evenement sont commites ensemble ou pas du tout
+    private DonorBO saveAndPublish(DonorBO donor) {
+        DonorBO saved = donorRepository.save(donor);
+        outboxEventRepository.save(outboxFactory.newEvent(donorEventMapper.toDonorCreatedEnvelope(saved, producerName)));
+        return saved;
     }
 
     private DonorBO findDonor(UUID donorId) {
