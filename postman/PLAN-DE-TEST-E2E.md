@@ -335,6 +335,13 @@ cd D:\workspace\public\gitops-platform\local\stack
   "{0,-15} {1}" -f $_, (oc --kubeconfig $ks logs deploy/$_ -n $ns --since=2h | Select-String -Pattern $motif | Measure-Object).Count }
 ```
 
+### 5.7 bis Chaine evenementielle (EDA6)
+
+| Id | Fonction | Commande | Attendu | Env. | Origine |
+|---|---|---|---|---|---|
+| SEC-EDA-01 | Recherche fermee sans jeton ou sans droit | `curl.exe -k -s -o NUL -w "%{http_code}" https://localhost:8443/api/v1/search/donors` (401) ; meme appel avec un jeton sans `donor:list` (403) ; `mvn verify` de `donation-cqrs-api` (`SearchControllerTest`) | 401, 403 | pile | EDA6 |
+| SEC-EDA-02 | Kafka, Connect et Elasticsearch injoignables de l'exterieur | `docker compose ps kafka kafka-connect elasticsearch` : aucun port publie ; `curl.exe -k -s -o NUL -w "%{http_code}" https://localhost:8443/_cat/indices` | Aucun port ; 404 | pile | EDA6 |
+
 ### 5.8 Secrets et acces
 
 | ID | Fonction testee | Commande | Attendu | Modes | Origine |
